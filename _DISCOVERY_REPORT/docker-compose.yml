@@ -1,0 +1,259 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# XPS Intelligence Platform – Full Stack Docker Compose
+#
+# Services:
+#   backend          – FastAPI agent core  (port 8000)
+#   gateway          – Express.js API      (port 3200)
+#   worker           – Async task worker   (no external port)
+#   frontend         – Next.js dashboard   (port 3000)
+#   redis            – Task queue + cache  (port 6379)
+#   postgres         – Structured storage  (port 5432)
+#   qdrant           – Vector embeddings   (port 6333)
+#   ollama           – Local LLM runtime   (port 11434)
+#   scraper-worker   – Python scraper      (no external port)
+#   interpreter      – Open Interpreter    (no external port)
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f backend
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Redis ────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: xps_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: xps_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-xps}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xpspass}
+      POSTGRES_DB: ${POSTGRES_DB:-xps}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-xps}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Qdrant ───────────────────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: xps_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── Ollama ───────────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: xps_ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── FastAPI Backend (Agent Core) ─────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: xps_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-xps}:${POSTGRES_PASSWORD:-xpspass}@postgres:5432/${POSTGRES_DB:-xps}
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      - LLM_PROVIDER=${LLM_PROVIDER:-auto}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-llama3-8b-8192}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_REPOSITORY=${GITHUB_REPOSITORY:-InfinityXOneSystems/XPS_INTELLIGENCE_SYSTEM}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+      - FRONTEND_URL=${FRONTEND_URL:-}
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/agent/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Express.js API Gateway ───────────────────────────────────────────────
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: xps_gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+      - "3200:3000"   # legacy alias so existing integrations keep working
+    environment:
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-xps}:${POSTGRES_PASSWORD:-xpspass}@postgres:5432/${POSTGRES_DB:-xps}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-}
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Python Task Worker ───────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: xps_worker
+    restart: unless-stopped
+    command: python -m task_queue.worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-xps}:${POSTGRES_PASSWORD:-xpspass}@postgres:5432/${POSTGRES_DB:-xps}
+      - QDRANT_URL=http://qdrant:6333
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      - LLM_PROVIDER=${LLM_PROVIDER:-auto}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-llama3-8b-8192}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - WORKER_MAX_RETRIES=3
+      - WORKER_POLL_TIMEOUT=5
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - xps_net
+    deploy:
+      replicas: 2
+
+  # ── Scraper Worker ───────────────────────────────────────────────────────
+  scraper-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.scraper
+    container_name: xps_scraper
+    restart: unless-stopped
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - SCRAPING_RATE_LIMIT=${SCRAPING_RATE_LIMIT:-10}
+      - PROXY_URL=${PROXY_URL:-}
+      - PROXY_ENABLED=${PROXY_ENABLED:-false}
+    volumes:
+      - .:/app
+      - ./leads:/app/leads
+    depends_on:
+      - redis
+    networks:
+      - xps_net
+
+  # ── Open Interpreter Worker ──────────────────────────────────────────────
+  interpreter-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: xps_interpreter
+    restart: unless-stopped
+    command: python -m task_queue.worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      - WORKER_TASK_FILTER=interpret
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+      - ollama
+    networks:
+      - xps_net
+
+volumes:
+  redis_data:
+  postgres_data:
+  qdrant_data:
+  ollama_data:
+
+networks:
+  xps_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24

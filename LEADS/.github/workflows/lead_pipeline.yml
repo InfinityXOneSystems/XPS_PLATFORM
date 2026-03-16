@@ -1,0 +1,32 @@
+﻿name: Lead Intelligence Pipeline
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+
+jobs:
+
+  pipeline:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+    - uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - run: pip install -r requirements.txt
+
+    - run: python pipeline/enterprise_lead_pipeline.py
+
+    - name: Commit results
+      run: |
+        git config --global user.name pipeline
+        git config --global user.email pipeline@bot.com
+        git add data/exports/*
+        git commit -m "update enriched leads"
+        git push
