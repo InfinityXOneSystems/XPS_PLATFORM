@@ -1,0 +1,138 @@
+name: Dependabot Auto-Merge
+
+# Automatically approves and enables auto-merge for safe Dependabot PRs.
+# - patch / minor bumps: approve (if repo permits) + auto-merge after CI passes
+# - major bumps: label 'major-bump' + add a comment requesting human review
+#
+# Required: repository must have "Allow auto-merge" enabled in Settings > General.
+# Note: To allow the approval step, enable "Allow GitHub Actions to create and
+#       approve pull requests" in Settings > Actions > General.
+
+on:
+  # pull_request_target runs with write permissions even for Dependabot PRs,
+  # unlike pull_request which runs with read-only access from the fork context.
+  # Security: this workflow does NOT check out PR code — it only reads event
+  # metadata — so using pull_request_target is safe here.
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  evaluate:
+    name: Evaluate Dependabot PR
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Label major version bumps and request review
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const pkg = '${{ steps.metadata.outputs.dependency-names }}';
+            const from = '${{ steps.metadata.outputs.previous-version }}';
+            const to   = '${{ steps.metadata.outputs.new-version }}';
+
+            // Ensure the 'major-bump' label exists (create if missing)
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'major-bump',
+              });
+            } catch {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'major-bump',
+                color: 'e4e669',
+                description: 'Major version bump — requires manual review before merging',
+              });
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              labels: ['major-bump'],
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: [
+                '## ⚠️ Major Version Bump — Manual Review Required',
+                '',
+                `**Package:** \`${pkg}\``,
+                `**Version:** \`${from}\` → \`${to}\``,
+                '',
+                'This PR bumps a **major** version and may contain breaking changes.',
+                'Auto-merge is **disabled** for major bumps.',
+                '',
+                '### Checklist before merging',
+                '- [ ] Review the package changelog / migration guide',
+                '- [ ] Confirm no breaking API changes affect this codebase',
+                '- [ ] Ensure CI passes (lint, typecheck, build)',
+                '- [ ] Manually approve this PR after verification',
+              ].join('\n'),
+            });
+
+      - name: Approve and enable auto-merge for patch/minor bumps
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const pkg  = '${{ steps.metadata.outputs.dependency-names }}';
+            const from = '${{ steps.metadata.outputs.previous-version }}';
+            const to   = '${{ steps.metadata.outputs.new-version }}';
+            const type = '${{ steps.metadata.outputs.update-type }}';
+
+            // Approve the PR — gracefully skip if repo setting prevents it.
+            // To allow this, enable "Allow GitHub Actions to create and approve
+            // pull requests" in Settings > Actions > General.
+            try {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                event: 'APPROVE',
+                body: `Auto-approved ${type} bump: \`${pkg}\` \`${from}\` → \`${to}\`. CI must pass before merge.`,
+              });
+              console.log(`✅ Approved PR #${pr.number}`);
+            } catch (err) {
+              console.warn(`⚠️ Could not approve PR (repo may not allow Actions approvals): ${err.message}`);
+            }
+
+            // Enable auto-merge (squash) — repository must allow auto-merge
+            try {
+              await github.graphql(`
+                mutation EnableAutoMerge($prId: ID!) {
+                  enablePullRequestAutoMerge(input: {
+                    pullRequestId: $prId,
+                    mergeMethod: SQUASH
+                  }) {
+                    pullRequest { autoMergeRequest { mergeMethod } }
+                  }
+                }
+              `, { prId: pr.node_id });
+              console.log(`✅ Auto-merge enabled for PR #${pr.number} (${pkg} ${from} → ${to})`);
+            } catch (err) {
+              console.warn(`⚠️ Could not enable auto-merge: ${err.message}`);
+            }

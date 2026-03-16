@@ -1,0 +1,192 @@
+name: Self-Edit — AI-Driven Repo Updates
+
+# GOVERNANCE: Tier 4 — Self-Healing (dispatch-only)
+# Schedule removed — self-improvement runs are now triggered via Tier 0 dispatcher
+# or explicit workflow_dispatch / repository_dispatch.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: 'Edit command (e.g. "update docs", "fix lint", "refresh leads data")'
+        required: false
+        default: 'refresh-docs'
+      target:
+        description: 'Target component (docs|pipeline|dashboard|all)'
+        required: false
+        default: 'all'
+  repository_dispatch:
+    types: [self-edit, ai-command, copilot-command]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: self-edit
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. Refresh Living Docs ──────────────────────────────────────────────────
+  refresh-docs:
+    name: Refresh Living Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      github.event.inputs.target == 'docs' ||
+      github.event.inputs.target == 'all' ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'repository_dispatch'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run evolve_docs
+        run: node tools/docs/evolve_docs.js
+        continue-on-error: true
+
+      - name: Commit updated docs
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/ pages/data/ dashboard/public/data/ data/leads/ || true
+          if git diff --cached --quiet; then
+            echo "No doc changes."
+          else
+            git commit -m "docs: auto-refresh living docs [skip ci] [self-edit $(date -u +%Y-%m-%dT%H:%MZ)]"
+            git push
+          fi
+
+  # ── 2. Refresh Lead Data Snapshot ──────────────────────────────────────────
+  refresh-data:
+    name: Refresh Lead Snapshot
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      github.event.inputs.target == 'pipeline' ||
+      github.event.inputs.target == 'all' ||
+      github.event_name == 'repository_dispatch'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run scoring pipeline
+        run: node agents/scoring/scoring_pipeline.js
+        continue-on-error: true
+        env:
+          DATABASE_HOST:     ${{ secrets.DATABASE_HOST }}
+          DATABASE_NAME:     ${{ secrets.DATABASE_NAME }}
+          DATABASE_USER:     ${{ secrets.DATABASE_USER }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          DATABASE_SSL:      ${{ secrets.DATABASE_SSL }}
+
+      - name: Export snapshot
+        run: node tools/export_snapshot.js
+        continue-on-error: true
+        env:
+          DATABASE_HOST:     ${{ secrets.DATABASE_HOST }}
+          DATABASE_NAME:     ${{ secrets.DATABASE_NAME }}
+          DATABASE_USER:     ${{ secrets.DATABASE_USER }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          DATABASE_SSL:      ${{ secrets.DATABASE_SSL }}
+
+      - name: Commit updated data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/leads/ dashboard/public/data/ pages/data/ || true
+          if git diff --cached --quiet; then
+            echo "No data changes."
+          else
+            git commit -m "data: auto-refresh lead snapshot [skip ci] [self-edit $(date -u +%Y-%m-%dT%H:%MZ)]"
+            git push
+          fi
+
+  # ── 3. Auto-Lint Fix ────────────────────────────────────────────────────────
+  lint-fix:
+    name: Auto-Lint Fix
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      github.event.inputs.command == 'fix-lint' ||
+      (github.event_name == 'repository_dispatch' && github.event.client_payload.command == 'fix-lint')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run prettier
+        run: |
+          if npx prettier --version >/dev/null 2>&1; then
+            npx prettier --write "**/*.{js,ts,tsx,json}" \
+              --ignore-path .gitignore \
+              --ignore-unknown 2>/dev/null || true
+          fi
+        continue-on-error: true
+
+      - name: Commit lint fixes
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No lint changes."
+          else
+            git commit -m "style: auto-fix lint [skip ci] [self-edit $(date -u +%Y-%m-%dT%H:%MZ)]"
+            git push
+          fi
+
+  # ── 4. Sync Summary ─────────────────────────────────────────────────────────
+  summary:
+    name: Self-Edit Summary
+    runs-on: ubuntu-latest
+    needs: [refresh-docs, refresh-data]
+    if: always()
+
+    steps:
+      - name: Report self-edit run
+        run: |
+          echo "=== Self-Edit Run Summary ==="
+          echo "Trigger:  ${{ github.event_name }}"
+          echo "Command:  ${{ github.event.inputs.command || github.event.client_payload.command || 'scheduled' }}"
+          echo "Target:   ${{ github.event.inputs.target || 'all' }}"
+          echo "Docs job: ${{ needs.refresh-docs.result }}"
+          echo "Data job: ${{ needs.refresh-data.result }}"
+          echo "Run URL:  ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

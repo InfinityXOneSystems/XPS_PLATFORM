@@ -1,0 +1,19 @@
+{
+  "ollama_model": "llama3.2",
+  "ollama_base_url": "http://localhost:11434",
+  "redis_url": "redis://localhost:6379/0",
+  "qdrant_url": "http://localhost:6333",
+  "database_url": "postgresql://localhost/xps",
+  "github_repo": "InfinityXOneSystems/XPS_INTELLIGENCE_SYSTEM",
+  "max_workers": 5,
+  "scraping_rate_limit": 10,
+  "proxy_enabled": false,
+  "proxy_url": "",
+  "llm_provider": "auto",
+  "openai_model": "gpt-4o-mini",
+  "groq_model": "llama3-8b-8192",
+  "media_output_dir": "./media/output",
+  "automation_schedule": "0 */4 * * *",
+  "agent_timeout_seconds": 120,
+  "supervisor_max_agents": 5
+}

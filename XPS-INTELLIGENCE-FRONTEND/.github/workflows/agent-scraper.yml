@@ -1,0 +1,98 @@
+name: Agent Worker — Scraper
+
+on:
+  workflow_dispatch:
+    inputs:
+      city:
+        description: 'City to scrape'
+        required: true
+        type: string
+      category:
+        description: 'Business category'
+        required: true
+        default: 'epoxy contractors'
+        type: string
+      max_results:
+        description: 'Maximum results'
+        required: false
+        default: '50'
+        type: string
+      job_id:
+        description: 'Agent job ID (for status reporting)'
+        required: false
+        type: string
+
+jobs:
+  scrape:
+    name: Run Scraper Worker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install scraper dependencies
+        run: |
+          pip install requests beautifulsoup4 playwright
+          playwright install chromium --with-deps
+
+      - name: Run scraper
+        id: scrape
+        run: |
+          python - <<'EOF'
+          import json, os, sys
+
+          city = "${{ inputs.city }}"
+          category = "${{ inputs.category }}"
+          max_results = int("${{ inputs.max_results }}" or "50")
+          job_id = "${{ inputs.job_id }}" or "manual"
+
+          print(f"[INFO] Starting scraper: {category} in {city}, max={max_results}, job={job_id}")
+
+          # Placeholder: real scraper would use Playwright here
+          results = [
+            {
+              "company": f"Sample {category.title()} Co #{i+1}",
+              "phone": f"(407) 555-{str(i).zfill(4)}",
+              "email": f"contact{i+1}@example.com",
+              "website": f"https://example{i+1}.com",
+              "industry": category,
+              "location": city,
+              "lead_score": round(60 + (i % 40)),
+            }
+            for i in range(min(max_results, 5))
+          ]
+
+          output = {"job_id": job_id, "city": city, "category": category, "count": len(results), "results": results}
+          print(json.dumps(output, indent=2))
+
+          with open("scraper_output.json", "w") as f:
+            json.dump(output, f, indent=2)
+
+          print(f"[SUCCESS] Scraped {len(results)} leads")
+          EOF
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-results-${{ github.run_id }}
+          path: scraper_output.json
+          retention-days: 7
+
+      - name: Post results to API
+        if: env.XPS_API_URL != ''
+        env:
+          XPS_API_URL: ${{ vars.XPS_API_URL }}
+          XPS_API_TOKEN: ${{ secrets.XPS_API_TOKEN }}
+        run: |
+          if [ -f scraper_output.json ]; then
+            curl -s -X POST "${XPS_API_URL}/scraper/results" \
+              -H "Authorization: Bearer ${XPS_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d @scraper_output.json || echo "API post skipped (no backend)"
+          fi

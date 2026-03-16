@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XPS Intelligence — Lead Dashboard</title>
+  <style>
+    :root {
+      --bg: #0a0e1a;
+      --surface: #111827;
+      --surface2: #1f2937;
+      --border: #374151;
+      --accent: #6366f1;
+      --accent2: #8b5cf6;
+      --hot: #ef4444;
+      --warm: #f59e0b;
+      --cold: #3b82f6;
+      --text: #f9fafb;
+      --muted: #9ca3af;
+      --green: #10b981;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #1a1040 0%, #0f172a 50%, #1a1040 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 1.25rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 1.25rem;
+      font-weight: 700;
+      background: linear-gradient(to right, #6366f1, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .logo-icon { font-size: 1.5rem; -webkit-text-fill-color: initial; }
+
+    .header-meta { color: var(--muted); font-size: 0.8rem; }
+
+    .stats-bar {
+      display: flex;
+      gap: 1rem;
+      padding: 1rem 2rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .stat-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1.25rem;
+      min-width: 120px;
+      flex: 1;
+    }
+
+    .stat-card .label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    .stat-card .value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .stat-card.hot .value  { color: var(--hot); }
+    .stat-card.warm .value { color: var(--warm); }
+    .stat-card.cold .value { color: var(--cold); }
+    .stat-card.total .value { color: var(--accent); }
+
+    .controls {
+      display: flex;
+      gap: 0.75rem;
+      padding: 1rem 2rem;
+      flex-wrap: wrap;
+      align-items: center;
+      background: var(--bg);
+    }
+
+    .controls input,
+    .controls select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 0.5rem 0.75rem;
+      font-size: 0.85rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .controls input:focus,
+    .controls select:focus { border-color: var(--accent); }
+
+    .controls input { min-width: 220px; }
+
+    .controls label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.18rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .badge-hot  { background: rgba(239,68,68,0.18);  color: #f87171; }
+    .badge-warm { background: rgba(245,158,11,0.18); color: #fbbf24; }
+    .badge-cold { background: rgba(59,130,246,0.18); color: #60a5fa; }
+
+    .score-bar-wrap {
+      width: 60px;
+      background: var(--border);
+      border-radius: 4px;
+      height: 6px;
+      overflow: hidden;
+      display: inline-block;
+      vertical-align: middle;
+    }
+
+    .score-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(to right, #6366f1, #a855f7);
+    }
+
+    .score-bar-fill.hot  { background: linear-gradient(to right, #ef4444, #f97316); }
+    .score-bar-fill.warm { background: linear-gradient(to right, #f59e0b, #fcd34d); }
+    .score-bar-fill.cold { background: linear-gradient(to right, #3b82f6, #60a5fa); }
+
+    main { padding: 0 2rem 2rem; overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      min-width: 800px;
+    }
+
+    thead tr {
+      background: var(--surface2);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    th {
+      padding: 0.7rem 0.9rem;
+      text-align: left;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-size: 0.7rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    th:hover { color: var(--text); }
+
+    td {
+      padding: 0.65rem 0.9rem;
+      border-bottom: 1px solid rgba(55,65,81,0.5);
+      vertical-align: middle;
+    }
+
+    tr:hover td { background: rgba(99,102,241,0.05); }
+
+    .company { font-weight: 600; color: var(--text); }
+    .email   { color: var(--accent); }
+    .phone   { color: var(--muted); font-size: 0.78rem; }
+    .location { color: var(--muted); font-size: 0.78rem; }
+    .score-cell { white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+
+    .loading, .error, .empty {
+      text-align: center;
+      padding: 3rem;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    .error { color: var(--hot); }
+
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 1.5rem 0 0;
+    }
+
+    .pagination button {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.4rem 0.75rem;
+      cursor: pointer;
+      font-size: 0.82rem;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .pagination button:hover:not(:disabled) { background: var(--surface2); border-color: var(--accent); }
+    .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .pagination button.active { background: var(--accent); border-color: var(--accent); }
+    .page-info { color: var(--muted); font-size: 0.8rem; }
+
+    @media (max-width: 600px) {
+      header, .stats-bar, .controls, main { padding-left: 1rem; padding-right: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span class="logo-icon">⚡</span>
+    XPS Intelligence — Lead Dashboard
+  </div>
+  <div class="header-meta">
+    Shadow Scraper · Asyncio Pipeline · Live Data
+    &nbsp;|&nbsp;
+    <span id="updated-at">Loading…</span>
+  </div>
+</header>
+
+<div class="stats-bar">
+  <div class="stat-card total">
+    <div class="label">Total Leads</div>
+    <div class="value" id="stat-total">—</div>
+  </div>
+  <div class="stat-card hot">
+    <div class="label">🔥 HOT (≥75)</div>
+    <div class="value" id="stat-hot">—</div>
+  </div>
+  <div class="stat-card warm">
+    <div class="label">🌡 WARM (50–74)</div>
+    <div class="value" id="stat-warm">—</div>
+  </div>
+  <div class="stat-card cold">
+    <div class="label">🧊 COLD (&lt;50)</div>
+    <div class="value" id="stat-cold">—</div>
+  </div>
+</div>
+
+<div class="controls">
+  <label>
+    🔍
+    <input id="search" type="text" placeholder="Search company, city, industry…" />
+  </label>
+  <label>
+    Tier
+    <select id="filter-tier">
+      <option value="">All Tiers</option>
+      <option value="hot">🔥 HOT</option>
+      <option value="warm">🌡 WARM</option>
+      <option value="cold">🧊 COLD</option>
+    </select>
+  </label>
+  <label>
+    Industry
+    <select id="filter-industry">
+      <option value="">All Industries</option>
+    </select>
+  </label>
+  <label>
+    State
+    <select id="filter-state">
+      <option value="">All States</option>
+    </select>
+  </label>
+  <label>
+    Per page
+    <select id="per-page">
+      <option value="25">25</option>
+      <option value="50" selected>50</option>
+      <option value="100">100</option>
+    </select>
+  </label>
+</div>
+
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th data-col="company">Company</th>
+        <th data-col="location">Location</th>
+        <th data-col="industry">Industry</th>
+        <th data-col="email">Email</th>
+        <th data-col="phone">Phone</th>
+        <th data-col="score">Score</th>
+        <th data-col="tier">Tier</th>
+        <th data-col="source">Source</th>
+      </tr>
+    </thead>
+    <tbody id="leads-body">
+      <tr><td colspan="8" class="loading">⏳ Loading leads…</td></tr>
+    </tbody>
+  </table>
+  <div class="pagination" id="pagination"></div>
+</main>
+
+<script>
+(function () {
+  // Try the Railway API first, then fall back to the local JSON file
+  const API_URL = "https://xps-intelligence.up.railway.app/api/leads?limit=2000";
+  const LOCAL_JSON = "./data/scored_leads.json";
+
+  let allLeads = [];
+  let filteredLeads = [];
+  let currentPage = 1;
+  let perPage = 50;
+  let sortCol = "score";
+  let sortDir = -1; // descending
+
+  async function fetchLeads() {
+    // Try live Railway API first
+    try {
+      const res = await fetch(API_URL, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) {
+        const json = await res.json();
+        if (Array.isArray(json.leads) && json.leads.length > 0) {
+          return json.leads;
+        }
+      }
+    } catch (_) { /* fall through to local */ }
+
+    // Fallback: local scored_leads.json
+    const res = await fetch(LOCAL_JSON);
+    if (!res.ok) throw new Error("Failed to load " + LOCAL_JSON);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  }
+
+  function tierFromScore(score) {
+    return score >= 75 ? "hot" : score >= 50 ? "warm" : "cold";
+  }
+
+  function normaliseLead(l, i) {
+    const score = Number(l.lead_score ?? l.score ?? 0) || 0;
+    const city  = (l.city || "").trim();
+    const state = (l.state || "").trim();
+    return {
+      id: l.id || i + 1,
+      company:  (l.company || l.company_name || "Unknown").trim(),
+      email:    (l.email || "").trim(),
+      phone:    (l.phone || "").trim(),
+      website:  (l.website || "").trim(),
+      city, state,
+      location: city && state ? `${city}, ${state}` : city || state || "",
+      industry: (l.industry || l.category || "Unknown").trim(),
+      score, lead_score: score,
+      tier:     (l.tier || tierFromScore(score)).toLowerCase(),
+      source:   l.source || "shadow_scraper",
+    };
+  }
+
+  function populateFilters(leads) {
+    const industries = [...new Set(leads.map(l => l.industry).filter(Boolean))].sort();
+    const states     = [...new Set(leads.map(l => l.state).filter(Boolean))].sort();
+
+    const iSel = document.getElementById("filter-industry");
+    industries.forEach(ind => {
+      const opt = document.createElement("option");
+      opt.value = ind; opt.textContent = ind;
+      iSel.appendChild(opt);
+    });
+
+    const sSel = document.getElementById("filter-state");
+    states.forEach(st => {
+      const opt = document.createElement("option");
+      opt.value = st; opt.textContent = st;
+      sSel.appendChild(opt);
+    });
+  }
+
+  function applyFilters() {
+    const q   = document.getElementById("search").value.toLowerCase();
+    const tier = document.getElementById("filter-tier").value;
+    const ind  = document.getElementById("filter-industry").value;
+    const st   = document.getElementById("filter-state").value;
+
+    filteredLeads = allLeads.filter(l => {
+      if (tier && l.tier !== tier) return false;
+      if (ind  && l.industry !== ind) return false;
+      if (st   && l.state !== st) return false;
+      if (q) {
+        const hay = `${l.company} ${l.location} ${l.industry} ${l.email} ${l.city} ${l.state}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    // Sort
+    filteredLeads.sort((a, b) => {
+      let av = a[sortCol], bv = b[sortCol];
+      if (typeof av === "string") av = av.toLowerCase();
+      if (typeof bv === "string") bv = bv.toLowerCase();
+      if (av < bv) return -sortDir;
+      if (av > bv) return  sortDir;
+      return 0;
+    });
+
+    currentPage = 1;
+    renderStats();
+    renderPage();
+    renderPagination();
+  }
+
+  function renderStats() {
+    const hot  = filteredLeads.filter(l => l.tier === "hot").length;
+    const warm = filteredLeads.filter(l => l.tier === "warm").length;
+    const cold = filteredLeads.filter(l => l.tier === "cold").length;
+    document.getElementById("stat-total").textContent = filteredLeads.length.toLocaleString();
+    document.getElementById("stat-hot").textContent   = hot.toLocaleString();
+    document.getElementById("stat-warm").textContent  = warm.toLocaleString();
+    document.getElementById("stat-cold").textContent  = cold.toLocaleString();
+  }
+
+  function renderPage() {
+    const tbody = document.getElementById("leads-body");
+    const start = (currentPage - 1) * perPage;
+    const page  = filteredLeads.slice(start, start + perPage);
+
+    if (filteredLeads.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty">No leads match the current filters.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = page.map(l => {
+      const tier = l.tier || tierFromScore(l.score);
+      const pct  = Math.min(100, l.score);
+      const website = l.website
+        ? `<a href="${escHtml(l.website)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${escHtml(l.company)}</a>`
+        : escHtml(l.company);
+      const email = l.email
+        ? `<a class="email" href="mailto:${escHtml(l.email)}">${escHtml(l.email)}</a>`
+        : `<span class="muted">—</span>`;
+      return `<tr>
+        <td class="company">${website}</td>
+        <td class="location">${escHtml(l.location || "—")}</td>
+        <td>${escHtml(l.industry || "—")}</td>
+        <td>${email}</td>
+        <td class="phone">${escHtml(l.phone || "—")}</td>
+        <td>
+          <div class="score-cell">
+            <span>${l.score}</span>
+            <div class="score-bar-wrap"><div class="score-bar-fill ${tier}" style="width:${pct}%"></div></div>
+          </div>
+        </td>
+        <td><span class="badge badge-${tier}">${tier}</span></td>
+        <td style="color:var(--muted);font-size:0.75rem">${escHtml(l.source || "—")}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderPagination() {
+    const total = Math.ceil(filteredLeads.length / perPage);
+    const pag = document.getElementById("pagination");
+    if (total <= 1) { pag.innerHTML = ""; return; }
+
+    let html = `<button ${currentPage===1?"disabled":""} onclick="goPage(${currentPage-1})">‹ Prev</button>`;
+
+    const window_ = 2;
+    for (let p = 1; p <= total; p++) {
+      if (p === 1 || p === total || Math.abs(p - currentPage) <= window_) {
+        html += `<button class="${p===currentPage?"active":""}" onclick="goPage(${p})">${p}</button>`;
+      } else if (Math.abs(p - currentPage) === window_ + 1) {
+        html += `<span class="page-info">…</span>`;
+      }
+    }
+
+    html += `<button ${currentPage===total?"disabled":""} onclick="goPage(${currentPage+1})">Next ›</button>`;
+    html += `<span class="page-info">${filteredLeads.length.toLocaleString()} leads · page ${currentPage}/${total}</span>`;
+    pag.innerHTML = html;
+  }
+
+  window.goPage = function (p) {
+    const total = Math.ceil(filteredLeads.length / perPage);
+    currentPage = Math.max(1, Math.min(p, total));
+    renderPage();
+    renderPagination();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  // Column sort
+  document.querySelectorAll("th[data-col]").forEach(th => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.col;
+      if (sortCol === col) sortDir *= -1;
+      else { sortCol = col; sortDir = col === "score" ? -1 : 1; }
+      applyFilters();
+    });
+  });
+
+  // Filter event listeners
+  ["search","filter-tier","filter-industry","filter-state"].forEach(id => {
+    document.getElementById(id).addEventListener("input", applyFilters);
+  });
+  document.getElementById("per-page").addEventListener("change", e => {
+    perPage = parseInt(e.target.value, 10);
+    applyFilters();
+  });
+
+  // Bootstrap
+  fetchLeads().then(raw => {
+    allLeads = raw.map(normaliseLead);
+    filteredLeads = [...allLeads];
+    populateFilters(allLeads);
+    applyFilters();
+    document.getElementById("updated-at").textContent =
+      "Updated: " + new Date().toLocaleString();
+  }).catch(err => {
+    document.getElementById("leads-body").innerHTML =
+      `<tr><td colspan="8" class="error">❌ Failed to load leads: ${escHtml(err.message)}</td></tr>`;
+    document.getElementById("updated-at").textContent = "Load failed";
+  });
+})();
+</script>
+</body>
+</html>

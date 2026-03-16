@@ -1,0 +1,412 @@
+[
+  {
+    "id": "gc_flooring_contractors",
+    "name": "Google Maps \u2014 Flooring Contractors USA",
+    "type": "google_maps",
+    "queries": [
+      "flooring contractors near me",
+      "hardwood floor installation",
+      "tile installation contractors",
+      "carpet installation companies",
+      "epoxy flooring contractors"
+    ],
+    "regions": [
+      "New York, NY",
+      "Los Angeles, CA",
+      "Chicago, IL",
+      "Houston, TX",
+      "Phoenix, AZ",
+      "Philadelphia, PA",
+      "San Antonio, TX",
+      "San Diego, CA",
+      "Dallas, TX",
+      "San Jose, CA"
+    ],
+    "priority": "high",
+    "schedule": "daily",
+    "enabled": true
+  },
+  {
+    "id": "yelp_flooring",
+    "name": "Yelp \u2014 Flooring Services",
+    "type": "yelp",
+    "queries": ["flooring", "hardwood floors", "tile contractors"],
+    "regions": ["nationwide"],
+    "priority": "medium",
+    "schedule": "weekly",
+    "enabled": true
+  },
+  {
+    "id": "bing_construction",
+    "name": "Bing Maps \u2014 Construction Companies",
+    "type": "bing_maps",
+    "queries": [
+      "general contractors",
+      "commercial flooring",
+      "construction company"
+    ],
+    "regions": ["nationwide"],
+    "priority": "medium",
+    "schedule": "weekly",
+    "enabled": true
+  },
+  {
+    "id": "directory_angi",
+    "name": "Angi / HomeAdvisor Directory",
+    "type": "directory",
+    "base_url": "https://www.angi.com",
+    "categories": ["flooring", "tile", "hardwood"],
+    "priority": "high",
+    "schedule": "daily",
+    "enabled": true
+  },
+  {
+    "id": "directory_houzz",
+    "name": "Houzz Pro Directory",
+    "type": "directory",
+    "base_url": "https://www.houzz.com",
+    "categories": ["flooring-contractors", "tile-contractors"],
+    "priority": "medium",
+    "schedule": "weekly",
+    "enabled": true
+  },
+  {
+    "id": "linkedin_companies",
+    "name": "LinkedIn \u2014 Flooring Company Pages",
+    "type": "linkedin",
+    "search_terms": [
+      "flooring company",
+      "hardwood flooring contractor",
+      "commercial flooring"
+    ],
+    "filters": {
+      "company_size": ["1-10", "11-50", "51-200"],
+      "location": "United States"
+    },
+    "priority": "low",
+    "schedule": "monthly",
+    "enabled": false
+  },
+  {
+    "id": "arxiv_cs_ai",
+    "name": "arXiv CS.AI",
+    "url": "https://rss.arxiv.org/rss/cs.AI",
+    "type": "rss",
+    "category": "ai_research",
+    "priority": 5,
+    "scrape_interval_hours": 6,
+    "tags": ["ai", "machine-learning", "research", "papers"]
+  },
+  {
+    "id": "arxiv_cs_lg",
+    "name": "arXiv CS.LG (Machine Learning)",
+    "url": "https://rss.arxiv.org/rss/cs.LG",
+    "type": "rss",
+    "category": "ai_research",
+    "priority": 5,
+    "scrape_interval_hours": 6,
+    "tags": ["machine-learning", "deep-learning", "research"]
+  },
+  {
+    "id": "paperswithcode",
+    "name": "Papers With Code (Latest)",
+    "url": "https://paperswithcode.com/rss",
+    "type": "rss",
+    "category": "ai_research",
+    "priority": 4,
+    "scrape_interval_hours": 12,
+    "tags": ["ai", "code", "benchmarks", "sota"]
+  },
+  {
+    "id": "huggingface_blog",
+    "name": "Hugging Face Blog",
+    "url": "https://huggingface.co/blog/feed.xml",
+    "type": "rss",
+    "category": "ai_research",
+    "priority": 4,
+    "scrape_interval_hours": 12,
+    "tags": ["ai", "nlp", "transformers", "open-source"]
+  },
+  {
+    "id": "techcrunch_ai",
+    "name": "TechCrunch AI",
+    "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+    "type": "rss",
+    "category": "venture_capital",
+    "priority": 5,
+    "scrape_interval_hours": 6,
+    "tags": ["startup", "funding", "ai", "news"]
+  },
+  {
+    "id": "techcrunch_startups",
+    "name": "TechCrunch Startups",
+    "url": "https://techcrunch.com/category/startups/feed/",
+    "type": "rss",
+    "category": "startups",
+    "priority": 5,
+    "scrape_interval_hours": 6,
+    "tags": ["startup", "funding", "venture"]
+  },
+  {
+    "id": "a16z_blog",
+    "name": "Andreessen Horowitz (a16z) Blog",
+    "url": "https://a16z.com/feed/",
+    "type": "rss",
+    "category": "venture_capital",
+    "priority": 5,
+    "scrape_interval_hours": 12,
+    "tags": ["vc", "investment", "technology", "trends"]
+  },
+  {
+    "id": "sequoia_blog",
+    "name": "Sequoia Capital Blog",
+    "url": "https://www.sequoiacap.com/feed/",
+    "type": "rss",
+    "category": "venture_capital",
+    "priority": 4,
+    "scrape_interval_hours": 24,
+    "tags": ["vc", "investment", "portfolio", "insights"]
+  },
+  {
+    "id": "crunchbase_news",
+    "name": "Crunchbase News",
+    "url": "https://news.crunchbase.com/feed/",
+    "type": "rss",
+    "category": "venture_capital",
+    "priority": 4,
+    "scrape_interval_hours": 6,
+    "tags": ["funding", "startup", "acquisitions", "ipo"]
+  },
+  {
+    "id": "ycombinator_news",
+    "name": "Y Combinator Hacker News (Top)",
+    "url": "https://news.ycombinator.com/rss",
+    "type": "rss",
+    "category": "startups",
+    "priority": 5,
+    "scrape_interval_hours": 6,
+    "tags": ["hacker-news", "tech", "startup", "programming"]
+  },
+  {
+    "id": "ycombinator_blog",
+    "name": "Y Combinator Blog",
+    "url": "https://www.ycombinator.com/blog/rss.xml",
+    "type": "rss",
+    "category": "startups",
+    "priority": 4,
+    "scrape_interval_hours": 24,
+    "tags": ["yc", "batch", "startup", "advice"]
+  },
+  {
+    "id": "producthunt_daily",
+    "name": "Product Hunt Daily",
+    "url": "https://www.producthunt.com/feed",
+    "type": "rss",
+    "category": "startups",
+    "priority": 3,
+    "scrape_interval_hours": 24,
+    "tags": ["products", "launches", "saas", "tools"]
+  },
+  {
+    "id": "indiehackers",
+    "name": "Indie Hackers",
+    "url": "https://www.indiehackers.com/feed.xml",
+    "type": "rss",
+    "category": "startups",
+    "priority": 3,
+    "scrape_interval_hours": 24,
+    "tags": ["indie", "bootstrapped", "revenue", "saas"]
+  },
+  {
+    "id": "mit_tech_review",
+    "name": "MIT Technology Review",
+    "url": "https://www.technologyreview.com/feed/",
+    "type": "rss",
+    "category": "technology",
+    "priority": 5,
+    "scrape_interval_hours": 12,
+    "tags": ["technology", "research", "innovation", "future"]
+  },
+  {
+    "id": "wired_business",
+    "name": "Wired Business",
+    "url": "https://www.wired.com/feed/category/business/latest/rss",
+    "type": "rss",
+    "category": "technology",
+    "priority": 4,
+    "scrape_interval_hours": 12,
+    "tags": ["tech", "business", "culture", "innovation"]
+  },
+  {
+    "id": "wired_ai",
+    "name": "Wired AI",
+    "url": "https://www.wired.com/feed/tag/artificial-intelligence/latest/rss",
+    "type": "rss",
+    "category": "ai_research",
+    "priority": 4,
+    "scrape_interval_hours": 12,
+    "tags": ["ai", "technology", "ethics", "future"]
+  },
+  {
+    "id": "venturebeat_ai",
+    "name": "VentureBeat AI",
+    "url": "https://venturebeat.com/ai/feed/",
+    "type": "rss",
+    "category": "technology",
+    "priority": 4,
+    "scrape_interval_hours": 6,
+    "tags": ["ai", "enterprise", "tech", "startup"]
+  },
+  {
+    "id": "the_information",
+    "name": "The Information (Public)",
+    "url": "https://www.theinformation.com/feed",
+    "type": "rss",
+    "category": "technology",
+    "priority": 3,
+    "scrape_interval_hours": 24,
+    "tags": ["tech", "insider", "analysis", "startups"]
+  },
+  {
+    "id": "bloomberg_tech",
+    "name": "Bloomberg Technology",
+    "url": "https://feeds.bloomberg.com/technology/news.rss",
+    "type": "rss",
+    "category": "financial",
+    "priority": 5,
+    "scrape_interval_hours": 6,
+    "tags": ["finance", "tech", "markets", "enterprise"]
+  },
+  {
+    "id": "reuters_tech",
+    "name": "Reuters Technology",
+    "url": "https://feeds.reuters.com/reuters/technologyNews",
+    "type": "rss",
+    "category": "financial",
+    "priority": 4,
+    "scrape_interval_hours": 6,
+    "tags": ["news", "tech", "global", "markets"]
+  },
+  {
+    "id": "seekingalpha_tech",
+    "name": "Seeking Alpha Technology",
+    "url": "https://seekingalpha.com/tag/technology.xml",
+    "type": "rss",
+    "category": "financial",
+    "priority": 3,
+    "scrape_interval_hours": 12,
+    "tags": ["stocks", "investment", "analysis", "tech"]
+  },
+  {
+    "id": "ft_tech",
+    "name": "Financial Times Technology",
+    "url": "https://www.ft.com/technology?format=rss",
+    "type": "rss",
+    "category": "financial",
+    "priority": 4,
+    "scrape_interval_hours": 12,
+    "tags": ["finance", "technology", "global", "enterprise"]
+  },
+  {
+    "id": "emerging_markets_insider",
+    "name": "Emerging Markets Insider",
+    "url": "https://www.emergingmarkets.org/rss.xml",
+    "type": "rss",
+    "category": "markets",
+    "priority": 3,
+    "scrape_interval_hours": 24,
+    "tags": ["emerging-markets", "frontier", "growth", "investment"]
+  },
+  {
+    "id": "africa_tech",
+    "name": "Disrupt Africa",
+    "url": "https://disrupt-africa.com/feed/",
+    "type": "rss",
+    "category": "markets",
+    "priority": 3,
+    "scrape_interval_hours": 24,
+    "tags": ["africa", "startup", "emerging", "tech"]
+  },
+  {
+    "id": "techcabal",
+    "name": "TechCabal (Africa Tech)",
+    "url": "https://techcabal.com/feed/",
+    "type": "rss",
+    "category": "markets",
+    "priority": 3,
+    "scrape_interval_hours": 24,
+    "tags": ["africa", "fintech", "startup", "innovation"]
+  },
+  {
+    "id": "ben_evans_blog",
+    "name": "Benedict Evans Blog",
+    "url": "https://www.ben-evans.com/benedictevans?format=rss",
+    "type": "rss",
+    "category": "technology",
+    "priority": 4,
+    "scrape_interval_hours": 24,
+    "tags": ["analysis", "tech", "strategy", "trends"]
+  },
+  {
+    "id": "stratechery",
+    "name": "Stratechery (Free Articles)",
+    "url": "https://stratechery.com/feed/",
+    "type": "rss",
+    "category": "technology",
+    "priority": 4,
+    "scrape_interval_hours": 24,
+    "tags": ["strategy", "tech", "business-models", "analysis"]
+  },
+  {
+    "id": "openai_blog",
+    "name": "OpenAI Blog",
+    "url": "https://openai.com/blog/rss.xml",
+    "type": "rss",
+    "category": "ai_research",
+    "priority": 5,
+    "scrape_interval_hours": 12,
+    "tags": ["openai", "gpt", "safety", "research"]
+  },
+  {
+    "id": "deepmind_blog",
+    "name": "Google DeepMind Blog",
+    "url": "https://deepmind.google/blog/rss.xml",
+    "type": "rss",
+    "category": "ai_research",
+    "priority": 4,
+    "scrape_interval_hours": 24,
+    "tags": ["deepmind", "agi", "research", "gemini"]
+  },
+  {
+    "id": "anthropic_news",
+    "name": "Anthropic News",
+    "url": "https://www.anthropic.com/news/rss",
+    "type": "rss",
+    "category": "ai_research",
+    "priority": 4,
+    "scrape_interval_hours": 24,
+    "tags": ["claude", "safety", "ai", "alignment"]
+  },
+  {
+    "id": "yellowpages_port_st_lucie",
+    "name": "YellowPages \u2014 Port St Lucie FL Contractors",
+    "type": "directory",
+    "base_url": "https://www.yellowpages.com",
+    "queries": [
+      "flooring contractors",
+      "epoxy flooring",
+      "tile installation",
+      "hardwood floor installation",
+      "carpet installation",
+      "concrete polishing",
+      "general contractors"
+    ],
+    "regions": ["Port St Lucie, FL"],
+    "city": "Port St Lucie",
+    "state": "FL",
+    "priority": "high",
+    "schedule": "daily",
+    "enabled": true,
+    "scraper": "shadow_rest_scraper"
+  }
+]

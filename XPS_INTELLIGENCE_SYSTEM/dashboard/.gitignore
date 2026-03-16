@@ -1,0 +1,8 @@
+# Playwright test artifacts
+test-results/
+playwright-report/
+.playwright/
+
+# Next.js build output
+.next/
+out/

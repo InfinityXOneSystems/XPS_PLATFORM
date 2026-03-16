@@ -1,0 +1,198 @@
+name: Lead Intelligence Pipeline
+
+# GOVERNANCE: Tier 4 — Self-Healing (dispatch-only)
+# Schedule removed — use lead_scraper.yml for scheduled scraping.
+# This pipeline is kept for full-stack manual runs only.
+# Invoke via: workflow_dispatch or Tier 0 dispatcher.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_keywords:
+        description: 'Max keywords per run (blank = all)'
+        required: false
+        default: ''
+      max_locations:
+        description: 'Max locations per run (blank = all)'
+        required: false
+        default: ''
+      skip_scrape:
+        description: 'Skip scraping (1 = yes, 0 = no)'
+        required: false
+        default: '0'
+      enforce_gates:
+        description: 'Fail pipeline on quality-gate violations (1 = yes)'
+        required: false
+        default: '0'
+
+# Only one pipeline run at a time to avoid data races.
+concurrency:
+  group: lead-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  pipeline:
+    name: Scrape → Validate → Score → Export
+    # Use self-hosted runner when available; fall back to GitHub-hosted.
+    runs-on: ${{ vars.PIPELINE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers (GitHub-hosted only)
+        # On self-hosted runners Playwright is pre-installed; skip to save time.
+        if: ${{ vars.PIPELINE_RUNNER == '' || vars.PIPELINE_RUNNER == null }}
+        run: npx playwright install --with-deps chromium
+        continue-on-error: true
+
+      # ── Step 1a: Bootstrap seed leads for target cities ──────────────────
+      - name: Bootstrap seed leads (Rockford IL / Columbus OH / Tempe AZ)
+        if: ${{ github.event.inputs.skip_scrape != '1' }}
+        run: node scripts/generate_city_leads.js
+
+      # ── Step 1b: Scrape ──────────────────────────────────────────────────
+      - name: Scrape leads for target cities
+        if: ${{ github.event.inputs.skip_scrape != '1' }}
+        env:
+          SCRAPER_CITIES: 'Rockford:IL,Columbus:OH,Tempe:AZ'
+          SCRAPER_CONCURRENCY: '2'
+          SCRAPER_RATE_LIMIT_MS: '2000'
+        run: node scrapers/google_maps_scraper.js
+        continue-on-error: true
+
+      # ── Step 2: Validate ─────────────────────────────────────────────────
+      - name: Validate leads
+        id: validate
+        env:
+          VALIDATION_MAX_INVALID_RATE:   '0.8'
+          VALIDATION_MAX_DUPLICATE_RATE: '0.8'
+        run: |
+          node -e "
+            const fs   = require('fs');
+            const path = require('path');
+            const { runValidationPipeline } = require('./validation/lead_validation_pipeline');
+            const leadsPath = path.join('data', 'leads', 'leads.json');
+            let leads = [];
+            if (fs.existsSync(leadsPath)) {
+              try { leads = JSON.parse(fs.readFileSync(leadsPath, 'utf8')); } catch {}
+            }
+            const enforceGates = ('${{ github.event.inputs.enforce_gates }}' === '1');
+            const result = runValidationPipeline(leads, { writeReports: true, enforceGates });
+            console.log(JSON.stringify(result.summary));
+          "
+
+      # ── Step 3: Score ─────────────────────────────────────────────────────
+      - name: Score leads
+        run: npm run score
+
+      # ── Step 4: Export snapshot ───────────────────────────────────────────
+      - name: Export JSON snapshots
+        env:
+          DATABASE_HOST:     ${{ secrets.DATABASE_HOST }}
+          DATABASE_PORT:     ${{ secrets.DATABASE_PORT || '5432' }}
+          DATABASE_NAME:     ${{ secrets.DATABASE_NAME }}
+          DATABASE_USER:     ${{ secrets.DATABASE_USER }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          DATABASE_SSL:      ${{ secrets.DATABASE_SSL || 'false' }}
+        run: node tools/export_snapshot.js
+
+      # ── Step 4b: City-specific CSV/Markdown exports ───────────────────────
+      - name: Export city CSVs and Markdown summaries
+        run: node tools/city_export.js
+
+      # ── Step 5: Commit data outputs ───────────────────────────────────────
+      - name: Commit pipeline outputs
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add \
+            leads/ \
+            data/leads/leads.json \
+            data/leads/scored_leads.json \
+            data/leads/scoring_report.json \
+            data/leads/validation_report.json \
+            data/leads/duplicates.json \
+            data/leads/invalid_leads.json \
+            data/scraper_progress.json \
+            data/exports/ \
+            pages/data/scored_leads.json \
+            pages/data/scoring_report.json \
+            dashboard/public/data/scored_leads.json \
+            dashboard/public/data/scoring_report.json \
+            2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No data changes to commit."
+          else
+            git commit -m "data: pipeline run [skip ci] [$(date -u +%Y-%m-%dT%H:%M:%SZ)] — ${{ github.run_number }}"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Step 6: Upload artifacts ──────────────────────────────────────────
+      - name: Upload pipeline artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-outputs-${{ github.run_number }}
+          path: |
+            data/leads/scored_leads.json
+            data/leads/scoring_report.json
+            data/leads/validation_report.json
+            data/leads/duplicates.json
+            data/leads/invalid_leads.json
+          retention-days: 14
+
+      # ── Step 7: Summary ───────────────────────────────────────────────────
+      - name: Pipeline summary
+        if: always()
+        run: |
+          echo "### Pipeline Run #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          node -e "
+            const fs = require('fs');
+            const vr = 'data/leads/validation_report.json';
+            const sr = 'data/leads/scoring_report.json';
+            if (fs.existsSync(vr)) {
+              const v = JSON.parse(fs.readFileSync(vr, 'utf8'));
+              const s = v.summary || {};
+              console.log('| Metric | Value |');
+              console.log('|---|---|');
+              console.log('| Total leads | ' + (s.total || 0) + ' |');
+              console.log('| Valid leads | ' + (s.valid || 0) + ' |');
+              console.log('| Invalid leads | ' + (s.invalid || 0) + ' |');
+              console.log('| Unique leads | ' + (s.unique || 0) + ' |');
+              console.log('| Duplicates | ' + (s.duplicates || 0) + ' |');
+            }
+            if (fs.existsSync(sr)) {
+              const r = JSON.parse(fs.readFileSync(sr, 'utf8'));
+              console.log('| HOT leads | ' + (r.tiers && r.tiers.HOT || 0) + ' |');
+              console.log('| WARM leads | ' + (r.tiers && r.tiers.WARM || 0) + ' |');
+              console.log('| COLD leads | ' + (r.tiers && r.tiers.COLD || 0) + ' |');
+            }
+          " >> $GITHUB_STEP_SUMMARY

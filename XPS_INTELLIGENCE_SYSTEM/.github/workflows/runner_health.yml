@@ -1,0 +1,63 @@
+name: GitHub-Hosted Runner Health Check
+
+# GOVERNANCE: Tier 4 — Self-Healing (dispatch-only)
+# Schedule changed from every 30 minutes to weekly (was generating 1400+ runs/month alone!).
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC (was: every 30 min)
+  workflow_dispatch:
+
+concurrency:
+  group: runner-health
+  cancel-in-progress: true
+
+jobs:
+  runner-health:
+    name: Runner Health Check
+    runs-on: ubuntu-latest   # GitHub-hosted runner
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Runner info
+        run: |
+          echo "Runner OS: ${{ runner.os }}"
+          echo "Runner arch: ${{ runner.arch }}"
+          echo "Runner name: ${{ runner.name }}"
+          echo "Workspace: ${{ github.workspace }}"
+          node --version
+          npm --version
+          python3 --version || true
+          docker --version || true
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate core modules
+        run: |
+          node --check agents/headless/headless_agent.js
+          node --check agents/orchestrator/infinity_orchestrator.js
+          node --check scrapers/social/social_scraper_engine.js
+          node --check sandbox/sandbox_manager.js
+          echo "✓ All modules pass syntax check"
+
+      - name: Report runner status
+        run: |
+          echo "{
+            \"runner\": \"${{ runner.name }}\",
+            \"os\": \"${{ runner.os }}\",
+            \"status\": \"healthy\",
+            \"ts\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+          }"

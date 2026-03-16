@@ -1,0 +1,150 @@
+name: Lead Validation Check
+
+# GOVERNANCE: Tier 3 — Async Intelligence (dispatch-only + PR gate)
+# Push trigger removed to prevent cascade from pipeline auto-commits.
+# Runs on PRs touching lead data and on explicit dispatch.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  pull_request:
+    paths:
+      - 'data/leads/leads.json'
+      - 'validation/**'
+      - 'validators/**'
+      - 'contracts/**'
+      - 'scrapers/**'
+      - 'agents/scoring/**'
+  workflow_dispatch:
+    inputs:
+      enforce_gates:
+        description: 'Enforce quality gates (1 = yes)'
+        required: false
+        default: '1'
+
+concurrency:
+  group: lead-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    name: Validate Lead Data & Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Run lead validation pipeline
+        id: validation
+        env:
+          VALIDATION_MAX_INVALID_RATE:   '0.8'
+          VALIDATION_MAX_DUPLICATE_RATE: '0.8'
+        run: |
+          node -e "
+            const fs   = require('fs');
+            const path = require('path');
+            const { runValidationPipeline } = require('./validation/lead_validation_pipeline');
+            const leadsPath = path.join('data', 'leads', 'leads.json');
+            let leads = [];
+            if (fs.existsSync(leadsPath)) {
+              try { leads = JSON.parse(fs.readFileSync(leadsPath, 'utf8')); } catch (e) {
+                console.error('Failed to parse leads.json:', e.message);
+              }
+            } else {
+              console.log('No leads.json found — skipping validation.');
+            }
+            const enforceGates = ('${{ github.event.inputs.enforce_gates }}' === '1');
+            const result = runValidationPipeline(leads, { writeReports: true, enforceGates });
+            const s = result.summary;
+            // Write summary for next step
+            const lines = [
+              'total='   + s.total,
+              'valid='   + s.valid,
+              'invalid=' + s.invalid,
+              'unique='  + s.unique,
+              'dupes='   + s.duplicates,
+            ];
+            require('fs').appendFileSync(process.env.GITHUB_OUTPUT || '/dev/null', lines.join('\n') + '\n');
+            console.log('Validation complete:', JSON.stringify(s));
+          "
+
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-reports-${{ github.run_number }}
+          path: |
+            data/leads/validation_report.json
+            data/leads/duplicates.json
+            data/leads/invalid_leads.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Comment PR with validation summary
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = 'data/leads/validation_report.json';
+            if (!fs.existsSync(reportPath)) {
+              console.log('No validation report to post.');
+              return;
+            }
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            const s = report.summary || {};
+            const body = [
+              '## 🔍 Lead Validation Report',
+              '',
+              '| Metric | Value |',
+              '|---|---|',
+              `| Total leads | ${s.total || 0} |`,
+              `| Valid leads | ${s.valid || 0} |`,
+              `| Invalid leads | ${s.invalid || 0} |`,
+              `| Unique leads | ${s.unique || 0} |`,
+              `| Duplicates removed | ${s.duplicates || 0} |`,
+              '',
+              `_Generated at ${s.generated_at || new Date().toISOString()}_`,
+            ].join('\n');
+
+            // Find existing bot comment to update rather than creating duplicates
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Lead Validation Report')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

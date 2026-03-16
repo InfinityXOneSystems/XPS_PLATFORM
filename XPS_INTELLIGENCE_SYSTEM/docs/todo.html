@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XPS Lead Intelligence — TODO Dashboard</title>
+  <style>
+    :root {
+      --bg: #000;
+      --surface: #111;
+      --border: #222;
+      --text: #fff;
+      --muted: #888;
+      --gold: #eab308;
+      --high: #ef4444;
+      --medium: #f97316;
+      --low: #22c55e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; padding: 2rem; }
+    h1 { color: var(--gold); font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .subtitle { color: var(--muted); font-size: 0.875rem; margin-bottom: 2rem; }
+    .stats { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem 1.5rem; min-width: 120px; }
+    .stat-value { font-size: 2rem; font-weight: bold; }
+    .stat-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-high .stat-value { color: var(--high); }
+    .stat-medium .stat-value { color: var(--medium); }
+    .stat-low .stat-value { color: var(--low); }
+    .stat-total .stat-value { color: var(--gold); }
+    .filters { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .filter-btn { background: var(--surface); border: 1px solid var(--border); color: var(--muted); padding: 0.375rem 0.75rem; border-radius: 0.375rem; cursor: pointer; font-size: 0.875rem; transition: all 0.15s; }
+    .filter-btn.active, .filter-btn:hover { border-color: var(--gold); color: var(--gold); }
+    .search { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 0.5rem 1rem; border-radius: 0.375rem; width: 100%; max-width: 400px; margin-bottom: 1.5rem; font-size: 0.875rem; }
+    .search:focus { outline: none; border-color: var(--gold); }
+    .todo-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .todo-item { background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.75rem 1rem; display: flex; align-items: flex-start; gap: 0.75rem; }
+    .todo-item.hidden { display: none; }
+    .priority-badge { font-size: 0.6875rem; font-weight: bold; padding: 0.125rem 0.375rem; border-radius: 0.25rem; white-space: nowrap; flex-shrink: 0; margin-top: 0.125rem; }
+    .priority-HIGH { background: rgba(239,68,68,0.15); color: var(--high); border: 1px solid rgba(239,68,68,0.3); }
+    .priority-MEDIUM { background: rgba(249,115,22,0.15); color: var(--medium); border: 1px solid rgba(249,115,22,0.3); }
+    .priority-LOW { background: rgba(34,197,94,0.15); color: var(--low); border: 1px solid rgba(34,197,94,0.3); }
+    .todo-content { flex: 1; min-width: 0; }
+    .todo-text { font-size: 0.875rem; margin-bottom: 0.25rem; }
+    .todo-meta { font-size: 0.75rem; color: var(--muted); }
+    .todo-id { color: var(--gold); }
+    .label-badge { background: rgba(234,179,8,0.1); color: var(--gold); border: 1px solid rgba(234,179,8,0.2); font-size: 0.6875rem; padding: 0.125rem 0.375rem; border-radius: 0.25rem; margin-left: 0.5rem; }
+    .empty { color: var(--muted); text-align: center; padding: 3rem; }
+    .generated { color: var(--muted); font-size: 0.75rem; margin-top: 2rem; }
+    a { color: var(--gold); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>⚡ XPS Lead Intelligence — TODO Dashboard</h1>
+  <div class="subtitle" id="subtitle">Loading...</div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="filters">
+    <button class="filter-btn active" onclick="setFilter('ALL')">All</button>
+    <button class="filter-btn" onclick="setFilter('HIGH')">🔴 High</button>
+    <button class="filter-btn" onclick="setFilter('MEDIUM')">🟠 Medium</button>
+    <button class="filter-btn" onclick="setFilter('LOW')">🟢 Low</button>
+  </div>
+
+  <input class="search" type="text" placeholder="Search TODOs..." oninput="setSearch(this.value)">
+
+  <div class="todo-list" id="todo-list">
+    <div class="empty">Loading TODO data...</div>
+  </div>
+
+  <div class="generated" id="generated"></div>
+
+  <script>
+    let allTodos = [];
+    let currentFilter = 'ALL';
+    let currentSearch = '';
+
+    async function loadTodos() {
+      try {
+        const res = await fetch('TODO.json');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        allTodos = data.items || [];
+
+        document.getElementById('subtitle').textContent =
+          data.total + ' open items · Last updated: ' + new Date(data.generated).toLocaleString();
+        document.getElementById('generated').textContent =
+          'Source: TODO.json · Auto-generated by tools/docs/evolve_docs.js';
+
+        renderStats(data.summary);
+        render();
+      } catch (e) {
+        document.getElementById('todo-list').innerHTML =
+          '<div class="empty">Could not load TODO.json.<br><small>' + e.message + '</small></div>';
+        document.getElementById('subtitle').textContent = 'Error loading data';
+      }
+    }
+
+    function renderStats(summary) {
+      const cards = [
+        { cls: 'stat-total', value: allTodos.length, label: 'Total' },
+        { cls: 'stat-high', value: summary.HIGH || 0, label: 'High' },
+        { cls: 'stat-medium', value: summary.MEDIUM || 0, label: 'Medium' },
+        { cls: 'stat-low', value: summary.LOW || 0, label: 'Low' },
+      ];
+      document.getElementById('stats').innerHTML = cards.map(c =>
+        '<div class="stat-card ' + c.cls + '">' +
+        '<div class="stat-value">' + c.value + '</div>' +
+        '<div class="stat-label">' + c.label + '</div>' +
+        '</div>'
+      ).join('');
+    }
+
+    function render() {
+      const filtered = allTodos.filter(t => {
+        const matchFilter = currentFilter === 'ALL' || t.priority === currentFilter;
+        const matchSearch = !currentSearch ||
+          t.text.toLowerCase().includes(currentSearch) ||
+          t.file.toLowerCase().includes(currentSearch) ||
+          (t.label || '').toLowerCase().includes(currentSearch);
+        return matchFilter && matchSearch;
+      });
+
+      if (!filtered.length) {
+        document.getElementById('todo-list').innerHTML = '<div class="empty">No items match your filter.</div>';
+        return;
+      }
+
+      document.getElementById('todo-list').innerHTML = filtered.map(t =>
+        '<div class="todo-item">' +
+        '<span class="priority-badge priority-' + t.priority + '">' + t.priority + '</span>' +
+        '<div class="todo-content">' +
+        '<div class="todo-text">' + escHtml(t.text) + '</div>' +
+        '<div class="todo-meta">' +
+        '<span class="todo-id">' + t.id + '</span> · ' +
+        escHtml(t.file) + ':' + t.line +
+        (t.label ? '<span class="label-badge">' + escHtml(t.label) + '</span>' : '') +
+        '</div>' +
+        '</div>' +
+        '</div>'
+      ).join('');
+    }
+
+    function setFilter(f) {
+      currentFilter = f;
+      document.querySelectorAll('.filter-btn').forEach((b, i) => {
+        b.classList.toggle('active', b.textContent.includes(f) || (f === 'ALL' && b.textContent === 'All'));
+      });
+      render();
+    }
+
+    function setSearch(v) {
+      currentSearch = v.toLowerCase();
+      render();
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    loadTodos();
+  </script>
+</body>
+</html>

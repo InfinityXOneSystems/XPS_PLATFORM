@@ -1,0 +1,81 @@
+{
+  "generated_at": "2026-03-08T22:38:04.364Z",
+  "trends": [
+    {
+      "name": "Epoxy Flooring",
+      "category": "Flooring",
+      "growth": "up",
+      "score": 92,
+      "leads": 577,
+      "description": "High demand in residential and commercial epoxy floor coating market",
+      "keywords": ["epoxy flooring", "garage floor coating", "metallic epoxy"]
+    },
+    {
+      "name": "Concrete Coatings",
+      "category": "Construction",
+      "growth": "up",
+      "score": 88,
+      "leads": 511,
+      "description": "Decorative concrete and polyaspartic coating demand rising",
+      "keywords": ["decorative concrete", "polyaspartic", "concrete sealing"]
+    },
+    {
+      "name": "Automotive Detailing",
+      "category": "Automotive",
+      "growth": "flat",
+      "score": 72,
+      "leads": 386,
+      "description": "Auto detailing and ceramic coating services market",
+      "keywords": ["auto detailing", "ceramic coating", "paint protection"]
+    },
+    {
+      "name": "Industrial Flooring",
+      "category": "Construction",
+      "growth": "up",
+      "score": 79,
+      "leads": 301,
+      "description": "Industrial warehouse and facility flooring solutions",
+      "keywords": [
+        "industrial flooring",
+        "warehouse coating",
+        "anti-slip floors"
+      ]
+    },
+    {
+      "name": "AI Lead Generation",
+      "category": "AI",
+      "growth": "up",
+      "score": 95,
+      "leads": 2658,
+      "description": "Autonomous AI-powered contractor lead generation and outreach",
+      "keywords": ["AI leads", "autonomous outreach", "contractor leads"]
+    }
+  ],
+  "niches": [
+    {
+      "name": "Epoxy",
+      "count": 577,
+      "trend": "up"
+    },
+    {
+      "name": "Concrete",
+      "count": 511,
+      "trend": "up"
+    },
+    {
+      "name": "Automotive",
+      "count": 386,
+      "trend": "flat"
+    },
+    {
+      "name": "Industrial",
+      "count": 301,
+      "trend": "flat"
+    },
+    {
+      "name": "SurfacePrep",
+      "count": 4,
+      "trend": "flat"
+    }
+  ]
+}

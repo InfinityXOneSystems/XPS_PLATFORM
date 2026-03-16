@@ -1,0 +1,12 @@
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests requiring live services (deselect with '-m not integration')",
+]

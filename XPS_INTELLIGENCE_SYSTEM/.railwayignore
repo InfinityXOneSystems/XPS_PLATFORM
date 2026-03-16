@@ -1,0 +1,22 @@
+# Railway Deployment Ignore File
+
+# Exclude node_modules folder
+node_modules/
+
+# Exclude build output
+dist/
+
+# Exclude logs
+*.log
+
+# Exclude environment variables
+.env
+
+# Exclude local configuration files
+*.local.json
+
+# Exclude git directory
+.git/
+
+# Exclude macOS metadata
+.DS_Store

@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-03-08T22:38:04.364Z",
+  "status": "healthy",
+  "checks": {
+    "api": "healthy",
+    "database": "healthy",
+    "agents": "running",
+    "queue": "ok",
+    "scraper": "ok",
+    "memory": "ok"
+  },
+  "metrics": {
+    "total_leads": 2658,
+    "hot_leads": 25,
+    "workers": {
+      "alive": 1,
+      "total": 1
+    },
+    "queue": {
+      "total": 0
+    }
+  },
+  "anomalies": [],
+  "auto_repairs": []
+}

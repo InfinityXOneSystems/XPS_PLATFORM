@@ -1,0 +1,163 @@
+name: 🕷️ Universal Shadow Scraper
+
+# GOVERNANCE: Tier 2 — Lead Intelligence
+# Runs the universal shadow scraper across all keywords and locations.
+# No API keys required. Scrapes real business data from public web sources.
+#
+# Required secrets (optional but recommended):
+#   GH_APP_ID            — Infinity Orchestrator GitHub App ID
+#   GH_APP_PRIVATE_KEY   — Infinity Orchestrator GitHub App private key
+#   GH_PAT               — Personal access token (fallback to GITHUB_TOKEN)
+
+on:
+  schedule:
+    # Run twice daily — 03:00 and 15:00 UTC
+    - cron: "0 3 * * *"
+    - cron: "0 15 * * *"
+  workflow_dispatch:
+    inputs:
+      keywords:
+        description: "Comma-separated keywords (leave blank for full CSV)"
+        required: false
+        default: ""
+      locations:
+        description: "Comma-separated locations, e.g. 'Houston, TX,Miami, FL'"
+        required: false
+        default: ""
+      max_per_keyword:
+        description: "Max leads per keyword+location combo"
+        required: false
+        default: "50"
+      use_csv:
+        description: "Use full keywords.csv + locations.csv dataset"
+        required: false
+        default: "true"
+        type: boolean
+      dry_run:
+        description: "Scrape but do not write files"
+        required: false
+        default: "false"
+        type: boolean
+
+concurrency:
+  group: universal-scraper
+  cancel-in-progress: false
+
+env:
+  PLAYWRIGHT_ENABLED: "true"
+  SCRAPER_CONCURRENCY: "8"
+  SCRAPER_TIMEOUT: "25"
+
+jobs:
+  scrape:
+    name: 🕷️ Universal Shadow Scraper
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install aiohttp beautifulsoup4 lxml httpx requests
+          # Install playwright (with browser) for headless JS scraping
+          pip install playwright || true
+          python -m playwright install chromium --with-deps 2>/dev/null || true
+
+      - name: Build scraper arguments
+        id: args
+        run: |
+          USE_CSV="${{ github.event.inputs.use_csv }}"
+          KEYWORDS="${{ github.event.inputs.keywords }}"
+          LOCATIONS="${{ github.event.inputs.locations }}"
+          MAX="${{ github.event.inputs.max_per_keyword || '50' }}"
+          DRY="${{ github.event.inputs.dry_run }}"
+
+          ARGS="--max-per-keyword $MAX"
+
+          # Scheduled runs always use full CSV
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            ARGS="$ARGS --use-csv"
+          elif [ "$USE_CSV" = "true" ] || [ -z "$KEYWORDS" ]; then
+            ARGS="$ARGS --use-csv"
+          fi
+
+          if [ -n "$KEYWORDS" ]; then
+            ARGS="$ARGS --keywords \"$KEYWORDS\""
+          fi
+          if [ -n "$LOCATIONS" ]; then
+            ARGS="$ARGS --locations \"$LOCATIONS\""
+          fi
+          if [ "$DRY" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
+          echo "args=$ARGS" >> "$GITHUB_OUTPUT"
+          echo "Scraper args: $ARGS"
+
+      - name: Run universal shadow scraper
+        run: |
+          echo "🚀 Starting universal shadow scraper..."
+          python scripts/universal_shadow_scraper.py ${{ steps.args.outputs.args }}
+
+      - name: Show lead summary
+        if: always()
+        run: |
+          echo "📊 Lead counts after scrape:"
+          for f in leads/scored_leads.json leads/leads.json pages/data/scored_leads.json; do
+            if [ -f "$f" ]; then
+              COUNT=$(python3 -c "import json; d=json.load(open('$f')); print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo 0)
+              HOT=$(python3  -c "import json; d=json.load(open('$f')); print(sum(1 for l in d if l.get('tier')=='HOT'))" 2>/dev/null || echo 0)
+              WARM=$(python3 -c "import json; d=json.load(open('$f')); print(sum(1 for l in d if l.get('tier')=='WARM'))" 2>/dev/null || echo 0)
+              echo "  $f: $COUNT leads (HOT=$HOT WARM=$WARM)"
+            fi
+          done
+
+      - name: Write GitHub Actions summary
+        if: always()
+        run: |
+          if [ -f leads/scored_leads.json ]; then
+            python3 -c 'import json,os; d=json.load(open("leads/scored_leads.json")); hot=sum(1 for l in d if l.get("tier")=="HOT"); warm=sum(1 for l in d if l.get("tier")=="WARM"); cold=sum(1 for l in d if l.get("tier")=="COLD"); s=open(os.environ.get("GITHUB_STEP_SUMMARY","/dev/null"),"a"); [s.write(x) for x in ["## Universal Scraper Results\n\n","| Metric | Value |\n","|--------|-------|\n","| Total | "+str(len(d))+" |\n","| HOT | "+str(hot)+" |\n","| WARM | "+str(warm)+" |\n","| COLD | "+str(cold)+" |\n"]]' 2>/dev/null || true
+          fi
+
+      - name: Commit scraped leads
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add leads/ pages/data/ data/leads/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "✅ No new leads to commit."
+          else
+            TOTAL=$(python3 -c "import json; d=json.load(open('leads/scored_leads.json')); print(len(d))" 2>/dev/null || echo "?")
+            git commit -m "feat(leads): universal scraper — $TOTAL real leads [$(date -u +%Y-%m-%d)]"
+            git push
+          fi
+
+      - name: Publish leads to LEADS repo and Frontend repo
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          GH_APP_ID:          "2494652"
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GH_PAT:             ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN:       ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          SUPABASE_URL:       ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:       ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python scripts/lead_validator.py --no-url-check 2>/dev/null || true
+          python scripts/publish_leads_to_repos.py 2>/dev/null || echo "⚠️ publish failed — leads committed to XPS repo above"
+          python scripts/shadow_scraper_pipeline.py --leads-only 2>/dev/null || true

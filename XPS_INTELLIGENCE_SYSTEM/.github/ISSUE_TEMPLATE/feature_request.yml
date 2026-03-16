@@ -1,0 +1,61 @@
+name: ✨ Feature Request
+description: Suggest a new feature or enhancement
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! Once submitted, a Copilot agent can be assigned to implement it automatically via PR.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature description
+      description: What do you want to add or improve?
+      placeholder: Add CSV export with custom column selection to the leads viewer...
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why is this needed?
+      description: What problem does it solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How should it be implemented? (Optional — Copilot will figure it out)
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Target component
+      options:
+        - Scraper / Lead Discovery
+        - Validation Pipeline
+        - Scoring Engine
+        - Outreach Automation
+        - Dashboard / UI
+        - Leads Viewer Page
+        - GitHub Actions Workflow
+        - Database / API
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - High — needed ASAP
+        - Medium — next sprint
+        - Low — nice to have
+    validations:
+      required: true

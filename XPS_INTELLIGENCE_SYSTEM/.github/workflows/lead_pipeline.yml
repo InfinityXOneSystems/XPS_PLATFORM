@@ -1,0 +1,444 @@
+name: Lead Generation Pipeline — Full Autonomous Run
+
+# GOVERNANCE: Tier 4 — Self-Healing (dispatch-only)
+# Schedule removed — was duplicating pipeline.yml and enterprise_lead_pipeline.yml every 2h.
+# Invoke via: workflow_dispatch or Tier 0 dispatcher.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: 'Cities per scrape batch'
+        required: false
+        default: '10'
+      state_filter:
+        description: 'Restrict to state (e.g. TX). Leave blank for all.'
+        required: false
+        default: ''
+      skip_scrape:
+        description: 'Skip scraping step (1 = skip, for re-scoring only)'
+        required: false
+        default: '0'
+      skip_outreach:
+        description: 'Skip outreach step (1 = skip)'
+        required: false
+        default: '0'
+
+concurrency:
+  group: lead-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  # ── Stage 1: Scrape ─────────────────────────────────────────────────────────
+  scrape:
+    name: "Stage 1 — Scrape Leads"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.event.inputs.skip_scrape != '1'
+    outputs:
+      leads_count: ${{ steps.count.outputs.leads_count }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Google Maps scraper for target cities
+        env:
+          # Rockville:IL is the intended city target (not Rockford, IL)
+          SCRAPER_CITIES: 'Rockville:IL,Columbus:OH,Tempe:AZ'
+          SCRAPER_CONCURRENCY: '2'
+          SCRAPER_RATE_LIMIT_MS: '2000'
+        run: node scrapers/google_maps_scraper.js
+        continue-on-error: true
+
+      - name: Run asyncio shadow scraper (Vision Cortex)
+        run: |
+          pip install aiohttp==3.13.3 feedparser==6.0.12 beautifulsoup4==4.14.3 --quiet
+          python scripts/shadow_scraper_pipeline.py --leads-only 2>&1 || true
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Count raw leads
+        id: count
+        run: |
+          COUNT=0
+          if [ -f data/leads/leads.json ]; then
+            COUNT=$(node -e "const f=require('./data/leads/leads.json'); console.log(Array.isArray(f)?f.length:0)" 2>/dev/null || echo 0)
+          fi
+          echo "leads_count=$COUNT" >> $GITHUB_OUTPUT
+          echo "Raw leads collected: $COUNT"
+
+      - name: Commit scraped leads
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add leads/leads.json data/leads/leads.json data/scraper_progress.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No new leads to commit."
+          else
+            git commit -m "data: scrape batch — $(date -u '+%Y-%m-%d %H:%M') UTC [skip ci]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi
+
+  # ── Stage 2: Validate & Dedupe ──────────────────────────────────────────────
+  validate:
+    name: "Stage 2 — Validate & Dedupe"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: scrape
+    if: always() && (needs.scrape.result == 'success' || needs.scrape.result == 'skipped')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pull latest data (in case scrape committed)
+        run: git pull origin main || true
+
+      - name: Run deduplication engine
+        run: npm run dedup
+        env:
+          DEDUP_FUZZY: '1'
+          DEDUP_FUZZY_THRESHOLD: '0.85'
+          DEDUP_MERGE: '1'
+
+      - name: Run validation pipeline
+        run: |
+          node -e "
+            const { runValidationPipeline } = require('./validation/lead_validation_pipeline');
+            const fs = require('fs');
+            const leadsPath = 'data/leads/leads.json';
+            let leads = [];
+            if (fs.existsSync(leadsPath)) {
+              try { leads = JSON.parse(fs.readFileSync(leadsPath, 'utf8')); } catch(e) {}
+            }
+            const result = runValidationPipeline(leads);
+            console.log('[validate] Summary:', JSON.stringify(result.summary));
+            // Write validated leads back
+            const validLeads = result.valid || [];
+            fs.mkdirSync('data/leads', { recursive: true });
+            fs.writeFileSync('data/leads/validated_leads.json', JSON.stringify(validLeads, null, 2));
+            console.log('[validate] Wrote', validLeads.length, 'validated leads.');
+          "
+
+      - name: Commit validated leads
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add leads/validated_leads.json leads/validation_report.json leads/duplicates.json leads/invalid_leads.json leads/dedup_report.json data/leads/validated_leads.json data/leads/dedup_report.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No validation changes to commit."
+          else
+            git commit -m "data: validate leads [skip ci]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi
+
+  # ── Stage 3: Score Leads ────────────────────────────────────────────────────
+  score:
+    name: "Stage 3 — Score Leads"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+    if: always() && needs.validate.result != 'failure'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pull latest data
+        run: git pull origin main || true
+
+      - name: Merge validated leads into leads.json
+        run: |
+          node -e "
+            const fs = require('fs');
+            const rawPath  = 'data/leads/leads.json';
+            const valPath  = 'data/leads/validated_leads.json';
+            const destPath = 'data/leads/leads.json';
+            let leads = [];
+            if (fs.existsSync(valPath)) {
+              leads = JSON.parse(fs.readFileSync(valPath, 'utf8'));
+            } else if (fs.existsSync(rawPath)) {
+              leads = JSON.parse(fs.readFileSync(rawPath, 'utf8'));
+            }
+            fs.mkdirSync('data/leads', { recursive: true });
+            fs.writeFileSync(destPath, JSON.stringify(leads, null, 2));
+            console.log('[merge] Using', leads.length, 'leads for scoring.');
+          "
+
+      - name: Run scoring pipeline
+        run: node agents/scoring/scoring_pipeline.js
+
+      - name: Normalize scored leads (canonical field names)
+        run: node scripts/normalize_leads.js
+
+      - name: Print scoring summary
+        run: |
+          node -e "
+            const fs = require('fs');
+            if (fs.existsSync('data/leads/scoring_report.json')) {
+              const r = JSON.parse(fs.readFileSync('data/leads/scoring_report.json', 'utf8'));
+              console.log('Scoring Summary:', JSON.stringify(r.summary || r, null, 2));
+            }
+          " || true
+
+      - name: Export city CSVs and Markdown summaries
+        run: node tools/city_export.js || true
+
+      - name: Commit scored leads
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add leads/ data/leads/scored_leads.json data/leads/scoring_report.json data/exports/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No scoring changes to commit."
+          else
+            git commit -m "data: score leads — $(date -u '+%Y-%m-%d %H:%M') UTC [skip ci]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi
+
+  # ── Stage 4: Outreach ───────────────────────────────────────────────────────
+  outreach:
+    name: "Stage 4 — Outreach (HOT leads)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: score
+    if: >
+      always() &&
+      needs.score.result == 'success' &&
+      github.event.inputs.skip_outreach != '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pull latest data
+        run: git pull origin main || true
+
+      - name: Run outreach engine (dry-run in CI)
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          OUTREACH_FROM_EMAIL: ${{ secrets.OUTREACH_FROM_EMAIL }}
+          OUTREACH_DRY_RUN: ${{ secrets.SMTP_HOST == '' && 'true' || 'false' }}
+        run: |
+          node -e "
+            const { runOutreachCampaign } = require('./outreach/outreach_engine');
+            runOutreachCampaign().catch(e => {
+              console.warn('[outreach] Non-fatal:', e.message);
+            });
+          " || true
+
+      - name: Commit outreach log
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/outreach/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No outreach changes to commit."
+          else
+            git commit -m "data: outreach log update [skip ci]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi
+
+  # ── Stage 5: Update Docs ─────────────────────────────────────────────────────
+  update-docs:
+    name: "Stage 5 — Update Docs"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [score]
+    if: always() && needs.score.result != 'failure'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Pull latest data
+        run: git pull origin main || true
+
+      - name: Regenerate living docs
+        run: node tools/docs/evolve_docs.js
+
+      - name: Commit docs
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "Docs already current."
+          else
+            git commit -m "docs: auto-update pipeline docs [skip ci]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi
+
+  # ── Stage 6: Publish — GitHub Pages + LEADS repo ────────────────────────────
+  publish:
+    name: "Stage 6 — Publish (GitHub Pages + LEADS repo)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [score]
+    if: always() && needs.score.result != 'failure'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pull latest scored leads
+        run: git pull origin main || true
+
+      - name: Install Python dependencies
+        run: pip install aiohttp==3.13.3 feedparser==6.0.12 beautifulsoup4==4.14.3 --quiet
+
+      - name: Run shadow scraper pipeline — normalise + publish all sinks
+        # --leads-only: use existing pipeline output (add --dry-run to preview only)
+        run: |
+          python scripts/shadow_scraper_pipeline.py --leads-only
+        env:
+          NEXT_PUBLIC_SUPABASE_URL:    ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY:   ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_TOKEN:                ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Commit GitHub Pages lead data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add pages/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "pages/data already current."
+          else
+            git commit -m "data: publish leads to GitHub Pages [skip ci]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi
+
+  # ── Pipeline Summary ─────────────────────────────────────────────────────────
+  summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [scrape, validate, score, outreach, update-docs, publish]
+    if: always()
+
+    steps:
+      - name: Write summary
+        run: |
+          echo "## Lead Generation Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Scrape | ${{ needs.scrape.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Validate | ${{ needs.validate.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Score | ${{ needs.score.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Outreach | ${{ needs.outreach.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Update Docs | ${{ needs.update-docs.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Publish | ${{ needs.publish.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Pipeline completed at $(date -u '+%Y-%m-%d %H:%M:%S') UTC_" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,203 @@
+name: Repo Sync — Branch Sync & Merge Guard
+
+# GOVERNANCE: Tier 4 — Self-Healing (dispatch-only, no push trigger)
+# Removed push trigger to prevent cascade from data commits.
+# Invoke via: workflow_dispatch or repository_dispatch.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action (sync-pages|sync-dashboard|check-conflicts|full)'
+        required: false
+        default: 'full'
+  repository_dispatch:
+    types: [repo-sync, sync-branches]
+
+permissions:
+  contents: write
+  pull-requests: read
+  issues: write
+
+concurrency:
+  group: repo-sync
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. Sync leads data ───────────────────────────────────────────────────────
+  sync-leads-data:
+    name: Sync Leads Data
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      github.event.inputs.action == 'sync-pages' ||
+      github.event.inputs.action == 'full' ||
+      github.event_name == 'repository_dispatch'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync scored_leads to data/leads
+        run: |
+          mkdir -p data/leads
+          if [ -f leads/scored_leads.json ] && [ ! -f data/leads/scored_leads.json ]; then
+            cp leads/scored_leads.json data/leads/scored_leads.json
+            echo "Synced scored_leads.json to data/leads/"
+          fi
+          if [ -f leads/scoring_report.json ] && [ ! -f data/leads/scoring_report.json ]; then
+            cp leads/scoring_report.json data/leads/scoring_report.json
+            echo "Synced scoring_report.json to data/leads/"
+          fi
+          echo "Leads data sync complete."
+
+      - name: Commit synced data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/leads/ || true
+          if git diff --cached --quiet; then
+            echo "Leads data already in sync."
+          else
+            git commit -m "sync: propagate lead data to data/leads/ [skip ci] [repo-sync $(date -u +%Y-%m-%dT%H:%MZ)]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi
+
+  # ── 2. Validate repo health ─────────────────────────────────────────────────
+  validate-health:
+    name: Validate Repository Health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate all workflows
+        run: |
+          FAIL=0
+          for f in .github/workflows/*.yml; do
+            python3 -c "import yaml, sys; yaml.safe_load(open('$f'))" \
+              && echo "OK: $f" || { echo "FAIL: $f"; FAIL=1; }
+          done
+          exit $FAIL
+
+      - name: Check for required files
+        run: |
+          MISSING=()
+          REQUIRED=(
+            "db/schema.sql"
+            "db/db.js"
+            "db/leadStore.js"
+            "tools/export_snapshot.js"
+            "validation/lead_validation_pipeline.js"
+            "agents/gpt_actions/server.js"
+            "agents/gpt_actions/openapi.json"
+            "integrations/google_workspace.js"
+            "docs/RUNBOOK.md"
+          )
+          for f in "${REQUIRED[@]}"; do
+            [ -f "$f" ] || MISSING+=("$f")
+          done
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "ERROR: Missing required files:"
+            printf '  - %s\n' "${MISSING[@]}"
+            exit 1
+          fi
+          echo "All required files present ✓"
+
+      - name: Check for UTF-16 encoded JS files
+        run: |
+          FOUND=0
+          while IFS= read -r -d '' f; do
+            if file "$f" | grep -q "UTF-16"; then
+              echo "UTF-16 ENCODED: $f"
+              FOUND=$((FOUND+1))
+            fi
+          done < <(find . -name "*.js" -not -path "*/node_modules/*" -not -path "*/.next/*" -print0)
+          if [ "$FOUND" -gt 0 ]; then
+            echo "WARNING: $FOUND UTF-16 encoded JS file(s) found. Auto-fix will be attempted."
+          else
+            echo "Encoding check passed ✓"
+          fi
+
+      - name: Auto-fix UTF-16 files
+        if: always()
+        run: |
+          FIXED=0
+          while IFS= read -r -d '' f; do
+            if file "$f" | grep -q "UTF-16"; then
+              iconv -f utf-16 -t utf-8 "$f" -o "${f}.utf8" 2>/dev/null && mv "${f}.utf8" "$f" && echo "Fixed: $f" && FIXED=$((FIXED+1))
+            fi
+          done < <(find . -name "*.js" -not -path "*/node_modules/*" -not -path "*/.next/*" -print0)
+          echo "Fixed $FIXED UTF-16 file(s)"
+
+      - name: Commit auto-fixed encoding
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No encoding fixes needed."
+          else
+            git commit -m "fix: convert UTF-16 JS files to UTF-8 [skip ci] [repo-sync]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 3. Report Sync Status ────────────────────────────────────────────────────
+  report:
+    name: Sync Status Report
+    runs-on: ubuntu-latest
+    needs: [sync-leads-data, validate-health]
+    if: always()
+
+    steps:
+      - name: Report results
+        run: |
+          echo "=== Repo Sync Status ==="
+          echo "Trigger:         ${{ github.event_name }}"
+          echo "Leads data sync: ${{ needs.sync-leads-data.result }}"
+          echo "Health check:    ${{ needs.validate-health.result }}"
+          if [ "${{ needs.validate-health.result }}" = "failure" ]; then
+            echo "⚠️  Health validation failed — check the logs"
+          else
+            echo "✅ Repository is healthy and in sync"
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Repo Sync Report" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Sync Leads Data | ${{ needs.sync-leads-data.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Validate Health | ${{ needs.validate-health.result }} |" >> $GITHUB_STEP_SUMMARY

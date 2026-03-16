@@ -1,0 +1,130 @@
+name: Autonomous Agent Pipeline
+
+# GOVERNANCE: Tier 4 — Self-Healing (dispatch-only)
+# Schedule removed to prevent duplicate runs with pipeline.yml and enterprise_lead_pipeline.yml.
+# Invoke via: workflow_dispatch or Tier 0 dispatcher.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Agent command to execute"
+        required: false
+        default: "scrape flooring contractors nationwide"
+      task_type:
+        description: "Task type"
+        required: false
+        default: "scrape"
+        type: choice
+        options:
+          - scrape
+          - validate
+          - enrich
+          - score
+          - full_pipeline
+
+concurrency:
+  group: autonomous-pipeline
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  # ── Step 1: Scrape ─────────────────────────────────────────────────────────
+  scrape:
+    name: Scrape → Validate → Score
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Run agent pipeline
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          REDIS_URL: ${{ secrets.REDIS_URL || '' }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL || '' }}
+          OLLAMA_BASE_URL: ${{ vars.OLLAMA_BASE_URL || 'http://localhost:11434' }}
+          AGENT_COMMAND: ${{ inputs.command || 'scrape flooring contractors nationwide' }}
+        run: |
+          python -c "
+          from agent_core.langgraph_runtime import run_graph
+          import os, json
+          cmd = os.environ.get('AGENT_COMMAND', 'scrape flooring contractors nationwide')
+          result = run_graph(cmd)
+          print(json.dumps(result, indent=2))
+          "
+
+      - name: Run scoring pipeline
+        run: npm run score
+
+      - name: Export snapshot
+        run: npm run export
+
+      - name: Run contract sync
+        run: npm run contract:sync || true
+
+      - name: Commit updated leads
+        run: |
+          git config user.name "XPS Agent Bot"
+          git config user.email "agent@xps-intelligence.ai"
+          git add -A leads/ data/ agents/gpt_actions/openapi.json dashboard/api/ || true
+          git diff --staged --quiet || git commit -m "chore(agent): autonomous pipeline update [skip ci]"
+          git push || true
+
+  # ── Step 2: Monitor ────────────────────────────────────────────────────────
+  monitor:
+    name: System Health Check
+    runs-on: ubuntu-latest
+    needs: scrape
+    if: always()
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install core dependencies
+        run: pip install fastapi uvicorn pydantic
+
+      - name: Check agent system
+        run: |
+          python -c "
+          from agent_core.command_router import route
+          from agent_core.chat_interpreter import ChatInterpreter
+          ci = ChatInterpreter(use_llm=False)
+          result = ci.process('status')
+          print('Chat interpreter OK:', result.get('action_taken'))
+          r = route('scrape epoxy contractors in Tampa')
+          print('Router OK:', r['agent'], r['type'])
+          print('All checks passed!')
+          "

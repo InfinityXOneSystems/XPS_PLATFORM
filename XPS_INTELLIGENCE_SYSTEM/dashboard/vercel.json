@@ -1,0 +1,52 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "outputDirectory": "out",
+  "installCommand": "npm install",
+  "rewrites": [
+    {
+      "source": "/api/v1/(.*)",
+      "destination": "https://xps-intelligence.up.railway.app/api/v1/$1"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "https://xps-intelligence.up.railway.app/api/$1"
+    },
+    {
+      "source": "/health",
+      "destination": "https://xps-intelligence.up.railway.app/health"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=()"
+        }
+      ]
+    },
+    {
+      "source": "/_next/static/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ],
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://xps-intelligence.up.railway.app",
+    "NEXT_PUBLIC_GATEWAY_URL": "https://xps-intelligence.up.railway.app"
+  }
+}

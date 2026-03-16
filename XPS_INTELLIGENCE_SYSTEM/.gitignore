@@ -1,0 +1,152 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+
+# Environment variables — never commit real credentials
+.env
+.env.local
+
+# OS artifacts
+.DS_Store
+*.log
+
+# Runtime-generated lead data
+data/outreach/outreach_log.json
+data/leads/scored_leads.json
+data/leads/scoring_report.json
+data/leads/leads.json
+
+# Legacy frontend data directories (UI moved to xps-intelligence-frontend)
+pages/data/
+
+# dashboard/public/data/ contains static JSON served by GitHub Pages — tracked intentionally
+
+# Build / cache artifacts
+dist/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+build/
+.cache/
+.next/
+storage/
+crawlee_storage/
+
+# Generated runtime data (not source files)
+data/ai/chat_sessions.json
+data/ai/memory.json
+data/calls/call_history.json
+data/invoices/invoice_*.html
+data/invoices/.invoice_counter
+data/monitor/health_reports.json
+data/monitor/scraper_stats.json
+data/outreach/email_tracking.json
+data/outreach/follow_up_schedule.json
+data/proposals/proposal_*.html
+data/sales/assignments.json
+data/sales/deals.json
+data/sales/pipeline.json
+data/sales/reminders.json
+data/logs/
+logs/*.jsonl
+logs/*.log
+
+# User-specific runtime settings (keep defaults in config/settings.default.json)
+config/settings.json
+media/output/
+
+# Runtime-generated files that should never be committed
+services/new_service.py
+agents/memory/state.json
+**/validation_report.json
+**/duplicates.json
+**/invalid_leads.json
+
+# Python
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+*.egg-info/
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+nosetests.xml
+test-results/
+
+# Node / Next.js
+out/
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npm
+.eslintcache
+
+# Environment files
+.env.*.local
+*.env
+
+# Docker
+.dockerignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Secrets / credentials
+credentials.json
+service-account.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Alembic
+alembic/versions/*.pyc
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Logs
+logs/
+
+# OS
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Temporary
+tmp/
+temp/
+.tmp/
+
+# Backend test databases
+backend/test.db
+backend/test_admin.db
+backend/test*.db
+# Root-level test databases
+test.db
+test_admin.db
+test*.db
+*.test.db
+capture.cjs
+take_ss.cjs
+
+output/

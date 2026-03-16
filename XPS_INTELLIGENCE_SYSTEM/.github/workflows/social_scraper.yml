@@ -1,0 +1,78 @@
+name: Social Media Scraper
+
+# GOVERNANCE: Tier 3 — Async Intelligence
+# Schedule: nightly at 02:00 UTC (kept as canonical social enrichment scheduler).
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  workflow_dispatch:
+    inputs:
+      linkedin_targets:
+        description: 'Comma-separated LinkedIn company slugs'
+        required: false
+        default: ''
+      twitter_targets:
+        description: 'Comma-separated Twitter handles'
+        required: false
+        default: ''
+      facebook_targets:
+        description: 'Comma-separated Facebook page slugs'
+        required: false
+        default: ''
+      instagram_targets:
+        description: 'Comma-separated Instagram handles'
+        required: false
+        default: ''
+      concurrency:
+        description: 'Parallel scraper concurrency'
+        required: false
+        default: '3'
+  schedule:
+    - cron: '0 2 * * *'   # Daily at 2 AM UTC (nightly only)
+
+concurrency:
+  group: social-scraper
+  cancel-in-progress: false
+
+jobs:
+  social-scrape:
+    name: Social Media Lead Discovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run social scraper
+        env:
+          SOCIAL_LINKEDIN:    ${{ github.event.inputs.linkedin_targets || '' }}
+          SOCIAL_TWITTER:     ${{ github.event.inputs.twitter_targets || '' }}
+          SOCIAL_FACEBOOK:    ${{ github.event.inputs.facebook_targets || '' }}
+          SOCIAL_INSTAGRAM:   ${{ github.event.inputs.instagram_targets || '' }}
+          SOCIAL_CONCURRENCY: ${{ github.event.inputs.concurrency || '3' }}
+        run: node scrapers/social/social_scraper_engine.js
+
+      - name: Commit enriched leads
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add leads/leads.json leads/social_leads.json || true
+          git diff --staged --quiet || git commit -m "chore: social media enrichment run [skip ci] $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push

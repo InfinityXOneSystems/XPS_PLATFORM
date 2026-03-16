@@ -1,0 +1,48 @@
+name: 🔧 Pipeline / Workflow Issue
+description: Report a broken or failed GitHub Actions workflow
+title: "[Workflow]: "
+labels: ["workflow", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to report broken CI/CD workflows. Copilot will investigate the logs and open a fix PR.
+
+  - type: dropdown
+    id: workflow
+    attributes:
+      label: Which workflow failed?
+      options:
+        - lead_pipeline.yml — Full Autonomous Pipeline
+        - repo_guardian.yml — Repo Guardian
+        - repo_sync.yml — Branch Sync & Merge Guard
+        - code_quality.yml — Code Quality
+        - system_validation.yml — System Validation
+        - docs_reflection.yml — Docs Reflection
+        - nextjs.yml — Deploy Next.js Dashboard
+        - pr_agent.yml — PR Agent
+        - pipeline.yml — Lead Intelligence Pipeline
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: run_url
+    attributes:
+      label: Failed run URL
+      placeholder: https://github.com/InfinityXOneSystems/LEAD_GEN_INTELLIGENCE/actions/runs/...
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message / logs
+      render: shell
+      description: Paste the relevant error from the workflow logs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context

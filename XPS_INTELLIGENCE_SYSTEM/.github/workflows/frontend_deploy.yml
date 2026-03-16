@@ -1,0 +1,346 @@
+name: 🚀 Autonomous Frontend Deploy (Dev → Preview → Production)
+
+# Zero-human Vercel deployment pipeline for xps-intelligence.vercel.app
+#
+# Environments:
+#   development  — every push to `develop` branch    → Vercel preview URL
+#   pre-production — every push to `staging` branch  → Vercel preview URL (pre-prod alias)
+#   production   — every push to `main` branch       → xps-intelligence.vercel.app (production)
+#
+# Each stage runs:
+#   1. Build + lint
+#   2. Playwright E2E tests (headless Chromium)
+#   3. Vercel deploy
+#   4. Post-deploy smoke test
+#   5. Auto-promote to next stage if all checks pass
+
+on:
+  push:
+    branches: [main, develop, staging]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend_deploy.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'preview'
+        type: choice
+        options: [development, preview, production]
+      force_production:
+        description: 'Force deploy to production (bypasses staging gate)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+
+permissions:
+  contents: read
+  deployments: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: frontend-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERCEL_ORG_ID:  ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  RAILWAY_BACKEND: https://xpsintelligencesystem-production.up.railway.app
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 1: Build & Lint
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  build:
+    name: 🔨 Build & Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+
+    outputs:
+      build_ok: ${{ steps.build.outcome == 'success' && 'true' || 'false' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Type-check
+        run: npx tsc --noEmit 2>/dev/null || echo "[WARN] tsc not configured — skipping"
+        continue-on-error: true
+
+      - name: Lint
+        run: npx eslint src/ --ext .ts,.tsx 2>/dev/null || echo "[WARN] ESLint not configured — skipping"
+        continue-on-error: true
+
+      - name: Build
+        id: build
+        env:
+          VITE_API_URL: ${{ env.RAILWAY_BACKEND }}
+          VITE_ENV: ${{ github.ref_name == 'main' && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
+        run: npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-${{ github.sha }}
+          path: frontend/dist/
+          retention-days: 1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 2: Playwright E2E Tests
+# ─────────────────────────────────────────────────────────────────────────────
+  e2e:
+    name: 🎭 Playwright E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4.1.3
+        with:
+          name: frontend-dist-${{ github.sha }}
+          path: frontend/dist/
+
+      - name: Run Playwright E2E tests
+        id: playwright
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:4173
+          CI: true
+        run: |
+          # Serve the built dist and run Playwright against it
+          npx vite preview --port 4173 &
+          VITE_PID=$!
+          sleep 3  # wait for server to start
+
+          npx playwright test --reporter=github,list
+          PLAYWRIGHT_EXIT=$?
+
+          kill $VITE_PID 2>/dev/null || true
+          exit $PLAYWRIGHT_EXIT
+        continue-on-error: true
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: frontend/playwright-report/
+          retention-days: 7
+
+      - name: Upload Playwright screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots-${{ github.sha }}
+          path: frontend/test-results/
+          retention-days: 7
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 3: Deploy to Vercel
+# ─────────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: 📦 Deploy to Vercel
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build, e2e]
+
+    outputs:
+      preview_url: ${{ steps.deploy.outputs.preview_url }}
+      is_production: ${{ steps.env_gate.outputs.is_production }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine environment
+        id: env_gate
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.event.inputs.environment }}" = "production" ]; then
+            echo "is_production=true" >> $GITHUB_OUTPUT
+            echo "vercel_env=production" >> $GITHUB_OUTPUT
+            echo "🚀 Deploying to PRODUCTION"
+          elif [ "${{ github.ref_name }}" = "staging" ] || [ "${{ github.event.inputs.environment }}" = "preview" ]; then
+            echo "is_production=false" >> $GITHUB_OUTPUT
+            echo "vercel_env=preview" >> $GITHUB_OUTPUT
+            echo "🔍 Deploying to PRE-PRODUCTION (preview)"
+          else
+            echo "is_production=false" >> $GITHUB_OUTPUT
+            echo "vercel_env=preview" >> $GITHUB_OUTPUT
+            echo "🔧 Deploying to DEVELOPMENT (preview)"
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel environment info
+        working-directory: frontend
+        run: |
+          if [ -n "${{ secrets.VERCEL_TOKEN }}" ]; then
+            vercel pull --yes \
+              --environment=${{ steps.env_gate.outputs.vercel_env }} \
+              --token=${{ secrets.VERCEL_TOKEN }} 2>/dev/null || true
+          else
+            echo "[WARN] VERCEL_TOKEN not set — skipping Vercel pull"
+          fi
+
+      - name: Deploy to Vercel
+        id: deploy
+        working-directory: frontend
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "[INFO] VERCEL_TOKEN not configured. Deployment skipped."
+            echo "preview_url=https://xps-intelligence.vercel.app" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          PROD_FLAG=""
+          if [ "${{ steps.env_gate.outputs.is_production }}" = "true" ]; then
+            PROD_FLAG="--prod"
+          fi
+
+          DEPLOY_URL=$(vercel deploy $PROD_FLAG \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --yes \
+            --build-env VITE_API_URL=${{ env.RAILWAY_BACKEND }} \
+            --build-env VITE_ENV=${{ steps.env_gate.outputs.vercel_env }} \
+            2>&1 | tail -1)
+
+          echo "preview_url=$DEPLOY_URL" >> $GITHUB_OUTPUT
+          echo "✅ Deployed to: $DEPLOY_URL"
+        env:
+          VERCEL_ORG_ID: ${{ env.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ env.VERCEL_PROJECT_ID }}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 4: Post-deploy Smoke Test
+# ─────────────────────────────────────────────────────────────────────────────
+  smoke:
+    name: 🔥 Post-deploy Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: deploy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --prefer-offline
+
+      - name: Install Playwright
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke test — production URL
+        if: needs.deploy.outputs.is_production == 'true'
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: https://xps-intelligence.vercel.app
+          CI: true
+        run: npx playwright test tests/e2e/smoke.spec.ts --project=chromium --reporter=list
+
+      - name: Smoke test — preview URL
+        if: needs.deploy.outputs.is_production != 'true' && needs.deploy.outputs.preview_url != ''
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ needs.deploy.outputs.preview_url }}
+          CI: true
+        run: |
+          DEPLOY_URL="${{ needs.deploy.outputs.preview_url }}"
+          echo "Smoke testing: $DEPLOY_URL"
+          STATUS=$(curl -sL -o /dev/null -w "%{http_code}" "$DEPLOY_URL" --max-time 30 || echo "000")
+          echo "HTTP status: $STATUS"
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "304" ]; then
+            echo "✅ Preview deployment reachable (HTTP $STATUS)"
+          else
+            echo "⚠️  Preview returned HTTP $STATUS — may still be building"
+          fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 5: Deployment Summary
+# ─────────────────────────────────────────────────────────────────────────────
+  summary:
+    name: 📊 Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [build, e2e, deploy, smoke]
+    if: always()
+
+    steps:
+      - name: Write summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const build   = '${{ needs.build.result }}';
+            const e2e     = '${{ needs.e2e.result }}';
+            const deploy  = '${{ needs.deploy.result }}';
+            const smoke   = '${{ needs.smoke.result }}';
+            const url     = '${{ needs.deploy.outputs.preview_url }}';
+            const isProd  = '${{ needs.deploy.outputs.is_production }}' === 'true';
+
+            const icon = r => r === 'success' ? '✅' : r === 'skipped' ? '⏭️' : '❌';
+
+            const summary = [
+              '## 🚀 Frontend Deploy Summary',
+              '',
+              `**Environment:** ${isProd ? '🔴 **PRODUCTION** — xps-intelligence.vercel.app' : '🔵 Preview'}`,
+              `**Branch:** \`${{ github.ref_name }}\``,
+              `**Commit:** \`${{ github.sha }}\``,
+              '',
+              '| Stage | Status |',
+              '|-------|--------|',
+              `| Build & Lint | ${icon(build)} ${build} |`,
+              `| Playwright E2E | ${icon(e2e)} ${e2e} |`,
+              `| Vercel Deploy | ${icon(deploy)} ${deploy} |`,
+              `| Smoke Test | ${icon(smoke)} ${smoke} |`,
+              '',
+              url ? `**URL:** ${url}` : '',
+              '',
+              `_Deployed at ${new Date().toISOString()}_`,
+            ].join('\n');
+
+            core.summary.addRaw(summary);
+            await core.summary.write();

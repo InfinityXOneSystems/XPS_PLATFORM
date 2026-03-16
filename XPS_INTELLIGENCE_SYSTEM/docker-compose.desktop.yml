@@ -1,0 +1,214 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# XPS Intelligence Platform — Docker Desktop Local Override
+#
+# Mirrors the Railway production topology:
+#   postgres  → Railway Postgres plugin
+#   redis     → Railway Redis plugin
+#   ollama    → Railway Ollama service (ollama/ollama image)
+#   backend   → Railway backend (FastAPI, this repo)
+#   frontend  → XPS-INTELLIGENCE-FRONTEND Vite dev server (uses Groq)
+#
+# Prerequisites:
+#   1. Copy .env.local.example → .env.local and fill in secrets.
+#   2. Clone XPS-INTELLIGENCE-FRONTEND next to this repo (or set XPS_FRONTEND_PATH).
+#
+# Usage:
+#   # Merge with the base compose (all infra services):
+#   docker compose -f docker-compose.yml -f docker-compose.desktop.yml up -d
+#
+#   # Or run the backend stack only (no frontend devserver):
+#   docker compose -f docker-compose.yml -f docker-compose.desktop.yml \
+#     up -d postgres redis ollama backend
+#
+#   # Pull the Ollama model once after first startup:
+#   docker compose exec ollama ollama pull llama3.2
+#
+# Notes:
+#   • The Groq API key (GROQ_API_KEY) is forwarded to both the backend and the
+#     Vite frontend so either service can use Groq for inference.
+#   • PostgreSQL, Redis, and Ollama run in Docker exactly as they do on Railway,
+#     so the DATABASE_URL / REDIS_URL / OLLAMA_BASE_URL values are identical.
+#   • Hot-reload is enabled via volume mounts for both backend and frontend.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Backend (FastAPI) — live-reload, Railway-compatible env ─────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: xps_backend_desktop
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Hot-reload: mount local source so changes apply without rebuild.
+      - type: bind
+        source: ${XPS_BACKEND_PATH:-.}
+        target: /app
+      - ./logs:/app/logs
+    environment:
+      # ── Mirrors Railway managed services ──
+      DATABASE_URL: ${DATABASE_URL:-postgresql://xps:xpspass@postgres:5432/xps}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2}
+      # ── LLM provider (auto = Groq first, then Ollama) ──
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama3-8b-8192}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # ── CORS — allow local Vite dev server + any Vercel/Railway preview ──
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000,https://xps-intelligence.vercel.app}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      # ── Other ──
+      SECRET_KEY: ${SECRET_KEY:-local-dev-key-change-me}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Express Gateway — mirrors Railway gateway service ────────────────────
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: xps_gateway_desktop
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - type: bind
+        source: ${XPS_BACKEND_PATH:-.}
+        target: /app
+      - /app/node_modules
+    environment:
+      PORT: "3000"
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://xps:xpspass@postgres:5432/xps}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000,https://xps-intelligence.vercel.app}
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - xps_net
+
+  # ── Frontend (XPS-INTELLIGENCE-FRONTEND Vite dev server) ─────────────────
+  # Uses Groq for AI inference (VITE_GROQ_API_KEY forwarded to the browser).
+  # The Vite dev server hot-reloads changes from the local frontend repo.
+  frontend:
+    image: node:20-alpine
+    container_name: xps_frontend_desktop
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    volumes:
+      - type: bind
+        source: ${XPS_FRONTEND_PATH:-../XPS-INTELLIGENCE-FRONTEND}
+        target: /app
+    environment:
+      # Backend API — the Vite proxy target
+      VITE_API_URL: http://localhost:3000
+      VITE_BACKEND_URL: http://localhost:3000
+      VITE_API_BASE_URL: http://localhost:3000
+      # Groq (used by the frontend for AI chat/completion features)
+      VITE_GROQ_API_KEY: ${GROQ_API_KEY:-}
+      VITE_GROQ_MODEL: ${GROQ_MODEL:-llama3-8b-8192}
+      # Supabase
+      VITE_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      VITE_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+      VITE_ENV: local
+    depends_on:
+      - gateway
+    networks:
+      - xps_net
+
+  # ── Ollama (local LLM — mirrors Railway Ollama service) ──────────────────
+  # On first start, pull the model:
+  #   docker compose exec ollama ollama pull llama3.2
+  ollama:
+    image: ollama/ollama:latest
+    container_name: xps_ollama_desktop
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_ORIGINS=*
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── PostgreSQL (local — mirrors Railway Postgres plugin) ─────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: xps_postgres_desktop
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-xps}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xpspass}
+      POSTGRES_DB: ${POSTGRES_DB:-xps}
+    volumes:
+      - postgres_data_desktop:/var/lib/postgresql/data
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-xps}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (local — mirrors Railway Redis plugin) ──────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: xps_redis_desktop
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data_desktop:/data
+    command: redis-server --appendonly yes
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data_desktop:
+  redis_data_desktop:
+  ollama_data:
+
+networks:
+  xps_net:
+    driver: bridge

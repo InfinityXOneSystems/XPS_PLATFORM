@@ -1,0 +1,44 @@
+{
+  "name": "Infinity Orchestrator",
+  "url": "https://github.com/apps/infinity-orchestrator",
+  "hook_attributes": {
+    "url": "https://YOUR_SERVER/webhooks/infinity-orchestrator",
+    "active": true
+  },
+  "redirect_url": "https://github.com/InfinityXOneSystems/LEAD_GEN_INTELLIGENCE",
+  "callback_urls": ["https://YOUR_SERVER/auth/github/callback"],
+  "setup_url": "https://YOUR_SERVER/setup",
+  "description": "Infinity Orchestrator — autonomous GitHub-native intelligence platform. Manages lead scraping, validation, scoring, outreach, and pipeline orchestration via GitHub events.",
+  "public": true,
+  "default_events": [
+    "push",
+    "pull_request",
+    "issues",
+    "issue_comment",
+    "workflow_run",
+    "workflow_job",
+    "repository_dispatch",
+    "schedule",
+    "check_run",
+    "check_suite",
+    "deployment",
+    "deployment_status",
+    "create",
+    "delete",
+    "release",
+    "label",
+    "milestone"
+  ],
+  "default_permissions": {
+    "actions": "write",
+    "checks": "write",
+    "contents": "write",
+    "deployments": "write",
+    "issues": "write",
+    "metadata": "read",
+    "pull_requests": "write",
+    "repository_projects": "write",
+    "statuses": "write",
+    "workflows": "write"
+  }
+}

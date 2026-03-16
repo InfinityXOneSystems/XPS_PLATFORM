@@ -1,0 +1,201 @@
+name: PR Agent — Governance & Auto-fix
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # ── Read-only policy check (runs on ALL PRs including forks) ───────────────
+  policy-check:
+    name: Policy Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Read-only: safe to run on fork PRs
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        id: tests
+        run: npm test 2>&1 | tee /tmp/test_output.txt
+        continue-on-error: true
+
+      - name: Check for secret patterns
+        id: secrets
+        run: |
+          # Scan changed files for common secret patterns (passwords, tokens, keys)
+          PATTERNS='(password|secret|token|api_key|private_key)\s*=\s*["\x27][^"\x27]{8,}'
+          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null | grep -E '\.(js|ts|tsx|env|json|yml|yaml)$' || true)
+          FOUND=''
+          for f in $CHANGED; do
+            [ -f "$f" ] || continue
+            MATCH=$(grep -inP "$PATTERNS" "$f" \
+              | grep -v '\.example' \
+              | grep -v 'CHANGE_ME' \
+              | grep -v 'placeholder' \
+              | grep -v 'test' \
+              | grep -v 'mock' \
+              | grep -v 'fixture' \
+              || true)
+            if [ -n "$MATCH" ]; then
+              FOUND="$FOUND\n- \`$f\`: $MATCH"
+            fi
+          done
+          if [ -n "$FOUND" ]; then
+            echo "secrets_found=true" >> $GITHUB_OUTPUT
+            printf '%s' "$FOUND" > /tmp/secret_findings.txt
+          else
+            echo "secrets_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check schema changes require migration note
+        id: schema
+        run: |
+          SCHEMA_CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD 2>/dev/null | grep -E 'db/schema\.sql' || true)
+          if [ -n "$SCHEMA_CHANGED" ]; then
+            echo "schema_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "schema_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post policy check comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const testOutput  = fs.existsSync('/tmp/test_output.txt')
+              ? fs.readFileSync('/tmp/test_output.txt', 'utf8').slice(-2000)
+              : '(not available)';
+            const testsOk     = '${{ steps.tests.outcome }}' === 'success';
+            const secretsFound = '${{ steps.secrets.outputs.secrets_found }}' === 'true';
+            const schemaChanged = '${{ steps.schema.outputs.schema_changed }}' === 'true';
+
+            let secretDetails = '';
+            if (secretsFound && fs.existsSync('/tmp/secret_findings.txt')) {
+              secretDetails = '\n\n**Findings:**\n' + fs.readFileSync('/tmp/secret_findings.txt', 'utf8');
+            }
+
+
+            const lines = [
+              '## 🤖 PR Agent — Policy Check',
+              '',
+              '| Check | Status |',
+              '|---|---|',
+              `| Unit tests | ${testsOk ? '✅ Pass' : '❌ Fail'} |`,
+              `| Secret scan | ${secretsFound ? '⚠️ Possible secrets detected' : '✅ Clean'} |`,
+              `| Schema change | ${schemaChanged ? '⚠️ db/schema.sql changed — ensure schema_version bumped' : '✅ No schema changes'} |`,
+            ];
+
+            if (!testsOk) {
+              lines.push('', '<details><summary>Test output</summary>', '', '```', testOutput, '```', '</details>');
+            }
+            if (secretsFound) {
+              lines.push('', `> ⚠️ Possible secrets or credentials detected in changed files. Please review before merging.${secretDetails}`);
+            }
+            if (schemaChanged) {
+              lines.push('', '> ℹ️ `db/schema.sql` was modified. Verify that `schema_version` table gets a new version row via `INSERT INTO schema_version` statement.');
+            }
+
+            lines.push('', `_Checked at ${new Date().toISOString()}_`);
+
+            const body = lines.join('\n');
+
+            // Upsert comment (avoid duplicate spam)
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('PR Agent — Policy Check')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # ── Auto-fix (only runs on trusted branches; never on forks) ──────────────
+  autofix:
+    name: Auto-fix (trusted branches only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only run when the PR head branch is in the SAME repo (not a fork)
+    # and targets main/develop/staging.
+    if: |
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.base_ref == 'main' || github.base_ref == 'develop' || github.base_ref == 'staging')
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run prettier (auto-format JS/TS files if prettier is available)
+        id: prettier
+        run: |
+          if npx prettier --version >/dev/null 2>&1; then
+            npx prettier --write "**/*.{js,ts,tsx,json}" \
+              --ignore-path .gitignore \
+              --ignore-unknown 2>/dev/null || true
+            echo "ran=true" >> $GITHUB_OUTPUT
+          else
+            echo "ran=false" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      - name: Commit auto-fix changes
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No auto-fix changes."
+          else
+            git commit -m "style: auto-fix formatting [bot]"
+            git push
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

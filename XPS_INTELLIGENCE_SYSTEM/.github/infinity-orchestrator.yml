@@ -1,0 +1,142 @@
+# .github/infinity-orchestrator.yml
+# ====================================
+# Infinity Orchestrator GitHub App Configuration
+#
+# This file configures the Infinity Orchestrator GitHub App
+# (https://github.com/apps/infinity-orchestrator) for this repository.
+#
+# The app enables:
+#   - Zero-human autonomous pipeline execution
+#   - Cross-repo coordination (XPS_INTELLIGENCE_SYSTEM, XPS-INTELLIGENCE-FRONTEND, LEADS)
+#   - Sandbox system triggers and result propagation
+#   - Automated PR creation and merging
+#   - Workflow dispatch from agent commands
+#
+# Required GitHub App Permissions:
+#   Repository: contents(write), actions(write), pull-requests(write),
+#               issues(write), workflows(write), deployments(write),
+#               statuses(write), checks(write)
+#   Organization: members(read)
+#
+# Required GitHub App Event Subscriptions:
+#   push, pull_request, workflow_run, workflow_dispatch,
+#   repository_dispatch, create, delete, issues, check_run, check_suite
+
+---
+app:
+  name: "infinity-orchestrator"
+  description: >
+    Autonomous orchestration agent that coordinates the XPS Intelligence
+    Platform pipeline with zero human approval required.
+
+# ── Repositories managed by this app ────────────────────────────────────────
+repositories:
+  - name: XPS_INTELLIGENCE_SYSTEM
+    owner: InfinityXOneSystems
+    role: backend-and-orchestrator
+    auto_merge: true
+    protected_branches: [main]
+    sandbox_branch_prefix: sandbox/
+    agent_branch_prefix: agent/
+
+  - name: XPS-INTELLIGENCE-FRONTEND
+    owner: InfinityXOneSystems
+    role: frontend
+    auto_merge: true
+    protected_branches: [main]
+    vercel_project: xps-intelligence
+    production_url: https://xps-intelligence.vercel.app
+
+  - name: LEADS
+    owner: InfinityXOneSystems
+    role: leads-archive
+    auto_merge: true
+    protected_branches: [main]
+    lead_storage: true
+    supabase_project: xps-intelligence
+
+# ── Pipeline coordination ────────────────────────────────────────────────────
+pipeline:
+  # Trigger chain: agent command → sandbox → validate → promote → deploy
+  stages:
+    - name: sandbox
+      trigger: push_to_sandbox_branch
+      workflow: sandbox_pipeline.yml
+      auto_proceed: true
+
+    - name: validate
+      trigger: sandbox_success
+      workflow: system_validation.yml
+      auto_proceed: true
+
+    - name: deploy_preview
+      trigger: validation_success
+      workflow: frontend_deploy.yml
+      environment: preview
+      auto_proceed: true
+
+    - name: deploy_production
+      trigger: preview_success
+      workflow: frontend_deploy.yml
+      environment: production
+      auto_proceed: true
+
+  # Repository dispatch events the app sends/receives
+  dispatch_events:
+    - sandbox-run          # Trigger sandbox execution
+    - agent-invention      # Agent-generated code ready for testing
+    - leads-updated        # New leads written to Supabase/LEADS repo
+    - validation-complete  # System validation finished
+    - deploy-complete      # Vercel deployment finished
+    - sync-repos           # Cross-repo sync requested
+
+# ── Auto-merge rules ─────────────────────────────────────────────────────────
+auto_merge:
+  enabled: true
+  required_checks:
+    - XPS System Validation
+    - Python Tests
+    - Node Tests
+    - Playwright E2E
+  # Merge method: squash | rebase | merge
+  method: squash
+  # Delete branch after merge
+  delete_branch: true
+
+# ── Cross-repo sync ───────────────────────────────────────────────────────────
+cross_repo_sync:
+  # When leads are updated in XPS_INTELLIGENCE_SYSTEM, push to LEADS repo
+  - source: XPS_INTELLIGENCE_SYSTEM
+    target: LEADS
+    trigger: leads_updated
+    paths: [leads/]
+
+  # When contracts change, sync to XPS-INTELLIGENCE-FRONTEND
+  - source: XPS_INTELLIGENCE_SYSTEM
+    target: XPS-INTELLIGENCE-FRONTEND
+    trigger: contracts_updated
+    paths: [contracts/frontend/]
+
+# ── Sandbox isolation rules ───────────────────────────────────────────────────
+sandbox:
+  # Branches matching these patterns run in the sandbox pipeline
+  branch_patterns:
+    - "sandbox/**"
+    - "agent/**"
+    - "invention/**"
+    - "copilot/**"
+
+  # Sandbox is fully isolated — never has access to production secrets
+  blocked_env_vars:
+    - "*_TOKEN"
+    - "*_SECRET"
+    - "*_PASSWORD"
+    - "*_KEY"
+    - "RAILWAY_*"
+    - "VERCEL_*"
+
+  # Safe overrides always injected into sandbox
+  safe_env_overrides:
+    DATABASE_URL: "sqlite:///./sandbox_test.db"
+    SECRET_KEY: "sandbox-key-not-for-production"
+    SANDBOX_MODE: "true"

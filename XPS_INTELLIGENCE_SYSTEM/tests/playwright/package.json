@@ -1,0 +1,14 @@
+{
+  "name": "xps-playwright-tests",
+  "version": "1.0.0",
+  "description": "XPS Intelligence Playwright E2E tests",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:frontend": "playwright test frontend.spec.js",
+    "test:exhaustive": "playwright test exhaustive.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}

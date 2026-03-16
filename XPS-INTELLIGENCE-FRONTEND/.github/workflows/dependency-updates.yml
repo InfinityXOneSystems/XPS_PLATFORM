@@ -1,0 +1,90 @@
+name: Auto Dependency Updates
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'  # Weekly on Monday at midnight UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-dependencies:
+    name: Check & Update Dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for outdated packages
+        id: outdated
+        run: |
+          OUTDATED=$(npm outdated --json 2>/dev/null || echo '{}')
+          if [ "$OUTDATED" = "{}" ]; then
+            echo "status=up-to-date" >> $GITHUB_OUTPUT
+            echo "No outdated packages found."
+          else
+            echo "status=updates-available" >> $GITHUB_OUTPUT
+            echo "Outdated packages found:"
+            echo "$OUTDATED" | jq -r 'to_entries[] | "  \(.key): \(.value.current // "?") -> \(.value.latest // "?")"' 2>/dev/null \
+              || echo "  (install jq for readable output)"
+          fi
+
+      - name: Run security audit fix
+        run: npm audit fix --audit-level=high || true
+
+      - name: Update patch and minor versions
+        run: |
+          # Update only patch and minor versions (safe updates)
+          npx npm-check-updates -u --target minor
+          npm install
+
+      - name: Verify lint passes after update
+        run: npm run lint
+
+      - name: Verify type-check passes after update
+        run: npx tsc --noEmit
+
+      - name: Verify build passes after update
+        run: npm run build
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: auto-update npm dependencies'
+          branch: deps/auto-update-${{ github.run_number }}
+          delete-branch: true
+          title: 'chore: weekly auto-update npm dependencies'
+          body: |
+            ## 🤖 Automated Dependency Update
+
+            This PR was automatically created by the weekly dependency update workflow.
+
+            ### Changes
+            - Patch and minor version updates applied via `npm-check-updates`
+            - Security vulnerabilities fixed via `npm audit fix`
+
+            ### Validation
+            - ✅ ESLint passed
+            - ✅ TypeScript type-check passed
+            - ✅ Build passed
+
+            > Review the changes and merge if everything looks good.
+          labels: |
+            dependencies
+            automated

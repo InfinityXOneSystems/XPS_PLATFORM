@@ -1,0 +1,91 @@
+{
+  "generated_at": "2026-03-11T20:46:43.516Z",
+  "total_leads": 1007,
+  "average_score": 39,
+  "tiers": {
+    "HOT": 28,
+    "WARM": 212,
+    "COLD": 767
+  },
+  "industries": {
+    "Epoxy": 89,
+    "Automotive": 125,
+    "Concrete": 22,
+    "SurfacePrep": 4,
+    "Unknown": 718,
+    "Flooring": 1,
+    "Industrial": 48
+  },
+  "top_leads": [
+    {
+      "company": "Desert Epoxy Solutions",
+      "city": "Tempe",
+      "lead_score": 95,
+      "tier": "HOT",
+      "industry": "Epoxy"
+    },
+    {
+      "company": "Valley Metallic Epoxy Specialists",
+      "city": "Tempe",
+      "lead_score": 95,
+      "tier": "HOT",
+      "industry": "Epoxy"
+    },
+    {
+      "company": "Columbus Epoxy Flooring Co.",
+      "city": "Columbus",
+      "lead_score": 95,
+      "tier": "HOT",
+      "industry": "Epoxy"
+    },
+    {
+      "company": "Tempe Garage Coatings",
+      "city": "Tempe",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Automotive"
+    },
+    {
+      "company": "AZ Polyurea Floor Coatings",
+      "city": "Tempe",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Epoxy"
+    },
+    {
+      "company": "Maricopa Decorative Concrete",
+      "city": "Tempe",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Concrete"
+    },
+    {
+      "company": "Ohio Garage Transformations",
+      "city": "Columbus",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Automotive"
+    },
+    {
+      "company": "Arch City Decorative Concrete",
+      "city": "Columbus",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Concrete"
+    },
+    {
+      "company": "Sonoran Surface Prep Inc.",
+      "city": "Tempe",
+      "lead_score": 88,
+      "tier": "HOT",
+      "industry": "SurfacePrep"
+    },
+    {
+      "company": "Heartland Surface Prep",
+      "city": "Columbus",
+      "lead_score": 88,
+      "tier": "HOT",
+      "industry": "SurfacePrep"
+    }
+  ]
+}

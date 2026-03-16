@@ -1,0 +1,25 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "bash ./start.sh",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 30,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5
+  },
+  "environments": {
+    "production": {
+      "DATABASE_URL": "${{Postgres.DATABASE_URL}}",
+      "REDIS_URL": "${{Redis.REDIS_URL}}",
+      "OLLAMA_BASE_URL": "http://${{Ollama.RAILWAY_PRIVATE_DOMAIN}}:11434",
+      "LLM_PROVIDER": "auto",
+      "GROQ_MODEL": "llama3-8b-8192",
+      "OLLAMA_MODEL": "llama3.2",
+      "PORT": "8000"
+    }
+  }
+}

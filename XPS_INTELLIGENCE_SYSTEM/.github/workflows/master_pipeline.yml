@@ -1,0 +1,367 @@
+name: 🚀 Master Lead Pipeline
+
+# GOVERNANCE: Tier 2 — Lead Intelligence
+# Master orchestration workflow:
+#   scrape → validate → score → publish to LEADS repo → publish to Frontend repo
+#
+# Auth: Infinity Orchestrator GitHub App (GH_APP_PRIVATE_KEY secret)
+#       Falls back to GH_PAT → GITHUB_TOKEN.
+#
+# Triggers:
+#   - Daily cron at 08:00 UTC
+#   - Manual dispatch with options
+#   - repository_dispatch type "run_pipeline"
+
+on:
+  schedule:
+    # 04:30 UTC daily — 1.5 hours after the overnight shadow scraper (03:00 UTC)
+    # finishes, giving ample time for leads to be written before validation reads them.
+    - cron: "30 4 * * *"   # 04:30 UTC daily
+  workflow_dispatch:
+    inputs:
+      skip_scrape:
+        description: "Skip scraping (use existing leads)"
+        type: boolean
+        default: false
+      skip_validate:
+        description: "Skip lead validation"
+        type: boolean
+        default: false
+      no_url_check:
+        description: "Skip website URL reachability check (faster)"
+        type: boolean
+        default: false
+      min_score:
+        description: "Minimum lead score to keep (0 = keep all)"
+        required: false
+        default: "0"
+      dry_run:
+        description: "Dry run — scrape/validate but skip GitHub writes"
+        type: boolean
+        default: false
+  repository_dispatch:
+    types:
+      - run_pipeline
+      - scrape_and_publish
+
+concurrency:
+  group: master-pipeline
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.11"
+  LEADS_MAX: "500"
+
+jobs:
+  # ── Job 1: Mint auth token ────────────────────────────────────────────────
+  auth:
+    name: 🔑 Resolve Auth Token
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      token: ${{ steps.token.outputs.token }}
+      source: ${{ steps.token.outputs.source }}
+    steps:
+      - name: Generate Infinity Orchestrator App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: "2494652"
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          repositories: >-
+            XPS_INTELLIGENCE_SYSTEM,
+            LEADS,
+            XPS-INTELLIGENCE-FRONTEND
+        continue-on-error: true
+
+      - name: Resolve token
+        id: token
+        run: |
+          if [ -n "${{ steps.app-token.outputs.token }}" ]; then
+            echo "token=${{ steps.app-token.outputs.token }}" >> $GITHUB_OUTPUT
+            echo "source=infinity_orchestrator_app" >> $GITHUB_OUTPUT
+            echo "✅ Using Infinity Orchestrator GitHub App token"
+          elif [ -n "${{ secrets.GH_PAT }}" ]; then
+            echo "token=${{ secrets.GH_PAT }}" >> $GITHUB_OUTPUT
+            echo "source=gh_pat" >> $GITHUB_OUTPUT
+            echo "⚠️  Using GH_PAT fallback"
+          else
+            echo "token=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_OUTPUT
+            echo "source=github_token" >> $GITHUB_OUTPUT
+            echo "⚠️  Using GITHUB_TOKEN (cross-repo writes may fail)"
+          fi
+
+  # ── Job 2: Scrape leads ───────────────────────────────────────────────────
+  scrape:
+    name: 🕷️ Scrape Leads
+    runs-on: ubuntu-latest
+    needs: auth
+    if: ${{ github.event.inputs.skip_scrape != 'true' }}
+    timeout-minutes: 90
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ needs.auth.outputs.token }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install scraper dependencies
+        run: |
+          pip install --upgrade pip
+          pip install aiohttp beautifulsoup4 lxml httpx requests playwright || true
+          python -m playwright install chromium --with-deps 2>/dev/null || true
+
+      - name: Run universal shadow scraper
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '0' }}
+        run: |
+          python scripts/universal_shadow_scraper.py --use-csv --max-per-keyword 50
+
+      - name: Commit scraped leads to XPS repo
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          git config user.name  "xps-pipeline[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add leads/ data/ pages/data/ 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "feat(leads): master pipeline scrape [$(date -u +%Y-%m-%d)]"
+          git push origin HEAD || echo "Nothing to push"
+
+      - name: Upload raw leads artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-leads-${{ github.run_number }}
+          path: leads/
+          retention-days: 7
+
+  # ── Job 3: Validate leads ─────────────────────────────────────────────────
+  validate:
+    name: ✅ Validate & Enrich Leads
+    runs-on: ubuntu-latest
+    needs: [auth, scrape]
+    if: >-
+      always() &&
+      needs.auth.result == 'success' &&
+      (needs.scrape.result == 'success' || needs.scrape.result == 'skipped') &&
+      github.event.inputs.skip_validate != 'true'
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ needs.auth.outputs.token }}
+
+      - name: Download raw leads artifact
+        uses: actions/download-artifact@v4.1.3
+        with:
+          name: raw-leads-${{ github.run_number }}
+          path: leads/
+        continue-on-error: true  # skip_scrape path — leads already on disk
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install validator dependencies
+        run: pip install --upgrade pip
+
+      - name: Validate leads
+        env:
+          MIN_SCORE: ${{ github.event.inputs.min_score || '0' }}
+          NO_URL: ${{ github.event.inputs.no_url_check == 'true' && '--no-url-check' || '' }}
+        run: |
+          python scripts/lead_validator.py \
+            --min-score "${MIN_SCORE:-0}" \
+            --workers 15 \
+            --url-timeout 10 \
+            ${NO_URL} \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
+
+      - name: Show validation summary
+        if: always()
+        run: |
+          if [ -f leads/validation_report.json ]; then
+            python3 -c "
+          import json
+          r = json.load(open('leads/validation_report.json'))
+          s = r.get('summary', {})
+          print('Validation Summary:')
+          print(f'  Total raw:  {s.get(\"total_raw\", 0)}')
+          print(f'  Valid:      {s.get(\"valid\", 0)}')
+          print(f'  Invalid:    {s.get(\"invalid\", 0)}')
+          print(f'  HOT:        {s.get(\"hot\", 0)}')
+          print(f'  WARM:       {s.get(\"warm\", 0)}')
+          print(f'  COLD:       {s.get(\"cold\", 0)}')
+          "
+          fi
+
+      - name: Write step summary
+        if: always()
+        run: |
+          if [ -f leads/validation_report.json ]; then
+            python3 -c "
+          import json, os
+          r = json.load(open('leads/validation_report.json'))
+          s = r.get('summary', {})
+          f = open(os.environ.get('GITHUB_STEP_SUMMARY', '/dev/null'), 'a')
+          f.write('## ✅ Lead Validation Results\n\n')
+          f.write('| Metric | Value |\n|--------|-------|\n')
+          for k, v in s.items():
+              f.write(f'| {k} | {v} |\n')
+          "
+          fi
+
+      - name: Commit validated leads
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          git config user.name  "xps-pipeline[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add leads/ 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "feat(leads): validated & enriched leads [$(date -u +%Y-%m-%d)]"
+          git push origin HEAD || echo "Nothing to push"
+
+      - name: Upload validated leads artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: validated-leads-${{ github.run_number }}
+          path: |
+            leads/scored_leads.json
+            leads/validation_report.json
+            leads/invalid_leads.json
+          retention-days: 14
+
+  # ── Job 4: Publish to LEADS + Frontend repos ──────────────────────────────
+  publish:
+    name: 📤 Publish to LEADS + Frontend Repos
+    runs-on: ubuntu-latest
+    needs: [auth, scrape, validate]
+    if: >-
+      always() &&
+      needs.auth.result == 'success' &&
+      (needs.validate.result == 'success' || needs.validate.result == 'skipped') &&
+      github.event.inputs.dry_run != 'true'
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ needs.auth.outputs.token }}
+
+      - name: Download validated leads artifact
+        uses: actions/download-artifact@v4.1.3
+        with:
+          name: validated-leads-${{ github.run_number }}
+          path: leads/
+        continue-on-error: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install publisher dependencies
+        run: pip install --upgrade pip
+
+      - name: Publish leads to LEADS repo and Frontend repo
+        env:
+          GH_APP_ID: "2494652"
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ needs.auth.outputs.token }}
+          LEADS_MAX: ${{ env.LEADS_MAX }}
+        run: python scripts/publish_leads_to_repos.py
+
+  # ── Job 5: System health test ─────────────────────────────────────────────
+  health-check:
+    name: 🏥 System Health Check
+    runs-on: ubuntu-latest
+    needs: publish
+    if: always() && needs.publish.result != 'cancelled'
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check Railway backend health
+        run: |
+          echo "Testing Railway backend..."
+          HEALTH=$(curl -sf https://xps-intelligence.up.railway.app/api/health 2>/dev/null || echo '{}')
+          echo "Health response: $HEALTH"
+          STATUS=$(echo "$HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','UNKNOWN'))" 2>/dev/null || echo "UNKNOWN")
+          if [ "$STATUS" = "OK" ]; then
+            echo "✅ Backend is HEALTHY"
+          else
+            echo "⚠️  Backend status: $STATUS (may be deploying)"
+          fi
+
+      - name: Test chat LLM endpoint
+        continue-on-error: true
+        run: |
+          echo "Testing /api/chat/send endpoint..."
+          RESPONSE=$(curl -sf -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"message":"ping — respond with OK","agentRole":"HealthChecker"}' \
+            https://xps-intelligence.up.railway.app/api/chat/send 2>/dev/null || echo '{}')
+          echo "Chat response: ${RESPONSE:0:200}"
+          REPLY=$(echo "$RESPONSE" | python3 -c "
+          import sys, json
+          try:
+              d = json.load(sys.stdin)
+              print(d.get('reply', {}).get('content', '')[:100] if isinstance(d.get('reply'), dict) else str(d.get('reply',''))[:100])
+          except:
+              print('parse_error')
+          " 2>/dev/null || echo "no_response")
+          if [ -n "$REPLY" ] && [ "$REPLY" != "parse_error" ] && [ "$REPLY" != "no_response" ]; then
+            echo "✅ Chat LLM responded: $REPLY"
+          else
+            echo "⚠️  Chat LLM not responding (may need GROQ_API_KEY or GITHUB_TOKEN env var)"
+          fi
+
+      - name: Test leads endpoint
+        run: |
+          echo "Testing /api/leads endpoint..."
+          COUNT=$(curl -sf https://xps-intelligence.up.railway.app/api/leads?limit=5 2>/dev/null | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo "0")
+          echo "Leads returned: $COUNT"
+          if [ "$COUNT" -gt "0" ] 2>/dev/null; then
+            echo "✅ Leads endpoint returning data ($COUNT leads sample)"
+          else
+            echo "⚠️  Leads endpoint returned 0 results"
+          fi
+
+      - name: Write pipeline summary
+        if: always()
+        run: |
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          {
+            echo "# 🚀 Master Pipeline Summary"
+            echo ""
+            echo "**Run:** #${{ github.run_number }}"
+            echo "**Timestamp:** $TS"
+            echo "**Trigger:** ${{ github.event_name }}"
+            echo ""
+            echo "## Jobs"
+            echo "| Job | Status |"
+            echo "|-----|--------|"
+            echo "| Auth | ${{ needs.auth.result }} |"
+            echo "| Scrape | ${{ needs.scrape.result }} |"
+            echo "| Validate | ${{ needs.validate.result }} |"
+            echo "| Publish | ${{ needs.publish.result }} |"
+            echo ""
+            echo "## Endpoints"
+            echo "- **Railway Backend:** https://xps-intelligence.up.railway.app"
+            echo "- **LEADS Repo:** https://github.com/InfinityXOneSystems/LEADS"
+            echo "- **Frontend Repo:** https://github.com/InfinityXOneSystems/XPS-INTELLIGENCE-FRONTEND"
+          } >> "$GITHUB_STEP_SUMMARY"

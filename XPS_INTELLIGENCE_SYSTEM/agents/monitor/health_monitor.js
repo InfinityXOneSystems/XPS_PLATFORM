@@ -1,0 +1,5 @@
+function monitor() {
+  console.log("Checking system");
+}
+
+setInterval(monitor, 60000);

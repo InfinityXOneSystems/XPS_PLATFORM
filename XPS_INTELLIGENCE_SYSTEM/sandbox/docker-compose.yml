@@ -1,0 +1,99 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────
+# Headless Agent Sandbox — Isolated Docker environment
+# ─────────────────────────────────────────────────
+#
+# Usage:
+#   docker compose up -d
+#   # Node.js headless agent  → http://localhost:3200
+#   # Python asyncio agent    → http://localhost:3201
+#   # Infinity Orchestrator   → http://localhost:3300
+#
+# Services run in isolated networks and resource-limited containers.
+
+services:
+  headless-node:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ..:/app:ro
+      - headless-screenshots:/app/screenshots
+    environment:
+      - HEADLESS_PORT=3200
+      - HEADLESS_MAX_SESSIONS=10
+      - HEADLESS_IDLE_TIMEOUT_MS=300000
+      - NODE_ENV=sandbox
+    command: >
+      bash -c "
+        apt-get update -qq &&
+        apt-get install -y --no-install-recommends curl &&
+        npx playwright install --with-deps chromium &&
+        node agents/headless/headless_agent.js
+      "
+    ports:
+      - "3200:3200"
+    networks:
+      - sandbox-net
+    mem_limit: 1g
+    cpus: "1.0"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3200/agent/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  headless-python:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ..:/app:ro
+    environment:
+      - HEADLESS_PYTHON_PORT=3201
+      - HEADLESS_MAX_SESSIONS=10
+    command: >
+      bash -c "
+        pip install -q -r requirements.txt &&
+        python agents/headless/headless_agent_async.py
+      "
+    ports:
+      - "3201:3201"
+    networks:
+      - sandbox-net
+    mem_limit: 512m
+    cpus: "0.5"
+    restart: unless-stopped
+
+  infinity-orchestrator:
+    image: node:20-bookworm-slim
+    working_dir: /app
+    volumes:
+      - ..:/app:ro
+    environment:
+      - ORCHESTRATOR_PORT=3300
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - NODE_ENV=sandbox
+    command: "node agents/orchestrator/infinity_orchestrator.js"
+    ports:
+      - "3300:3300"
+    networks:
+      - sandbox-net
+    mem_limit: 256m
+    cpus: "0.25"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3300/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  sandbox-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  headless-screenshots:

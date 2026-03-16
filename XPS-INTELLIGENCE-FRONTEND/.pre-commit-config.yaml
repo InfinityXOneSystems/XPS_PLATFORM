@@ -1,0 +1,39 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.28.0
+    hooks:
+      - id: eslint
+        files: \.(ts|tsx)$
+        types: [file]
+        additional_dependencies:
+          - eslint@^9.28.0
+          - typescript-eslint@^8.38.0
+          - eslint-plugin-react-hooks@^7.0.1
+          - eslint-plugin-react-refresh@^0.5.2
+          - globals@^17.4.0
+          - '@eslint/js@^9.21.0'
+
+  - repo: local
+    hooks:
+      - id: typescript-check
+        name: TypeScript type check
+        entry: npx tsc --noEmit
+        language: node
+        types: [file]
+        files: \.(ts|tsx)$
+        pass_filenames: false
+        additional_dependencies:
+          - typescript@~5.7.2

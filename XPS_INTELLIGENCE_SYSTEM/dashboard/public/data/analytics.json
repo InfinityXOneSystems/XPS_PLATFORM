@@ -1,0 +1,113 @@
+{
+  "generated_at": "2026-03-08T22:38:04.364Z",
+  "health": {
+    "status": "healthy",
+    "service": "XPS Intelligence Platform",
+    "version": "2.0.0",
+    "uptime": "static-export"
+  },
+  "metrics": {
+    "total_leads": 2658,
+    "hot_leads": 25,
+    "warm_leads": 247,
+    "cold_leads": 2386,
+    "average_score": 34,
+    "industries": {
+      "Epoxy": 577,
+      "Concrete": 511,
+      "Automotive": 386,
+      "SurfacePrep": 4,
+      "Unknown": 879,
+      "Industrial": 301
+    },
+    "workers": {
+      "alive": 1,
+      "total": 1
+    },
+    "queue": {
+      "total": 0,
+      "queues": {}
+    }
+  },
+  "tasks": {
+    "total": 0,
+    "tasks": {}
+  },
+  "tiers": {
+    "HOT": 25,
+    "WARM": 247,
+    "COLD": 2386
+  },
+  "top_leads": [
+    {
+      "company": "Desert Epoxy Solutions",
+      "city": "Tempe",
+      "lead_score": 95,
+      "tier": "HOT",
+      "industry": "Epoxy"
+    },
+    {
+      "company": "Valley Metallic Epoxy Specialists",
+      "city": "Tempe",
+      "lead_score": 95,
+      "tier": "HOT",
+      "industry": "Epoxy"
+    },
+    {
+      "company": "Columbus Epoxy Flooring Co.",
+      "city": "Columbus",
+      "lead_score": 95,
+      "tier": "HOT",
+      "industry": "Epoxy"
+    },
+    {
+      "company": "Rockford Epoxy Pros",
+      "city": "Rockford",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Epoxy"
+    },
+    {
+      "company": "Illini Polyaspartic Floors",
+      "city": "Rockford",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Epoxy"
+    },
+    {
+      "company": "Rockford Decorative Concrete Co.",
+      "city": "Rockford",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Concrete"
+    },
+    {
+      "company": "Tempe Garage Coatings",
+      "city": "Tempe",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Automotive"
+    },
+    {
+      "company": "AZ Polyurea Floor Coatings",
+      "city": "Tempe",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Epoxy"
+    },
+    {
+      "company": "Maricopa Decorative Concrete",
+      "city": "Tempe",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Concrete"
+    },
+    {
+      "company": "Ohio Garage Transformations",
+      "city": "Columbus",
+      "lead_score": 90,
+      "tier": "HOT",
+      "industry": "Automotive"
+    }
+  ]
+}

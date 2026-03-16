@@ -1,0 +1,121 @@
+{
+  "version": "1.0.0",
+  "description": "XPS Intelligence Workflow Governance — Tier Definitions & Dispatch Rules",
+  "governance": {
+    "max_runs_per_month_target": 100,
+    "max_concurrent_workflows": 3,
+    "cascade_prevention": true,
+    "auto_cancel_superseded": true
+  },
+  "tiers": {
+    "tier0": {
+      "name": "Guardian (Central Dispatcher)",
+      "description": "Single source of truth. Validates context, dispatches tier-based workflows.",
+      "workflows": ["workflow_dispatcher.yml"],
+      "triggers": [
+        "push:main",
+        "pull_request:main",
+        "workflow_dispatch",
+        "schedule:nightly"
+      ],
+      "max_duration_minutes": 10,
+      "concurrency": "workflow-dispatcher-${{ github.ref }}"
+    },
+    "tier1": {
+      "name": "Quality Gates",
+      "description": "Fast feedback loops. Tests, lint, architecture checks.",
+      "workflows": ["ci.yml", "code_quality.yml", "system_validation.yml"],
+      "triggers": ["workflow_dispatch", "push:main", "pull_request"],
+      "max_duration_minutes": 15,
+      "expected_runs_per_month": 40
+    },
+    "tier2": {
+      "name": "Deployment",
+      "description": "Conditional deployments — only on main branch, only when relevant paths change.",
+      "workflows": ["deploy-backend.yml", "nextjs.yml"],
+      "triggers": ["workflow_dispatch", "push:main:paths"],
+      "max_duration_minutes": 20,
+      "expected_runs_per_month": 20
+    },
+    "tier3": {
+      "name": "Async Intelligence",
+      "description": "Lead scraping, validation, and enrichment. Dispatch or scheduled (max once daily).",
+      "workflows": [
+        "lead_scraper.yml",
+        "lead_validation.yml",
+        "social_scraper.yml",
+        "national_discovery.yml"
+      ],
+      "triggers": ["workflow_dispatch", "schedule:daily_max"],
+      "max_duration_minutes": 30,
+      "expected_runs_per_month": 20
+    },
+    "tier4": {
+      "name": "Self-Healing",
+      "description": "Docs reflection, repo sync, health checks. Dispatch-only or max weekly schedule.",
+      "workflows": [
+        "docs_reflection.yml",
+        "repo_sync.yml",
+        "repo_guardian.yml",
+        "runner_health.yml",
+        "autonomous_pipeline.yml",
+        "pipeline.yml",
+        "enterprise_lead_pipeline.yml"
+      ],
+      "triggers": ["workflow_dispatch"],
+      "max_duration_minutes": 60,
+      "expected_runs_per_month": 20
+    },
+    "tier5": {
+      "name": "Merge-Time Governance",
+      "description": "PR checks, conflict detection, issue automation. Only triggered by GitHub events.",
+      "workflows": ["merge_guard.yml", "pr_agent.yml", "issue_triage.yml"],
+      "triggers": ["pull_request", "issues", "push:main"],
+      "max_duration_minutes": 15,
+      "expected_runs_per_month": 20
+    }
+  },
+  "deprecated": {
+    "deploy.yml": {
+      "reason": "Merged into deploy-backend.yml",
+      "archived_at": "2026-03-11",
+      "archive_path": ".infinity/deprecated_workflows/deploy.yml"
+    },
+    "scrape-schedule.yml": {
+      "reason": "Merged into lead_scraper.yml",
+      "archived_at": "2026-03-11",
+      "archive_path": ".infinity/deprecated_workflows/scrape-schedule.yml"
+    }
+  },
+  "cascade_prevention_rules": [
+    {
+      "rule": "no_auto_commit_without_skip_ci",
+      "description": "All auto-commit steps must include [skip ci] in commit message",
+      "enforced_in": [
+        "docs_reflection.yml",
+        "lead_scraper.yml",
+        "pipeline.yml",
+        "autonomous_pipeline.yml"
+      ]
+    },
+    {
+      "rule": "no_push_trigger_on_self_healing",
+      "description": "Self-healing workflows (tier4) must not trigger on push events",
+      "enforced_in": [
+        "docs_reflection.yml",
+        "repo_sync.yml",
+        "autonomous_pipeline.yml"
+      ]
+    },
+    {
+      "rule": "no_duplicate_schedulers",
+      "description": "Each domain must have at most one scheduled workflow",
+      "domains": {
+        "scraping": "lead_scraper.yml",
+        "social": "social_scraper.yml",
+        "docs": "docs_reflection.yml",
+        "deps": "update-deps.yml"
+      }
+    }
+  ]
+}

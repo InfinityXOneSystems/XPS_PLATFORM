@@ -1,0 +1,29 @@
+﻿FROM python:3.11-slim
+
+# Install system dependencies for Playwright and evdev
+RUN apt-get update && \
+    apt-get install -y curl git wget gnupg ca-certificates linux-libc-dev \
+    && apt-get clean
+
+WORKDIR /app
+
+# Copy requirements first (for better caching)
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY backend/ .
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Copy and configure the entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+# Run the application via entrypoint (Railway startCommand takes precedence over CMD)
+ENTRYPOINT ["/docker-entrypoint.sh"]

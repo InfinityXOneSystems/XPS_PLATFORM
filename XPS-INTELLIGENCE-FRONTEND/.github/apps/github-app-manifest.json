@@ -1,0 +1,32 @@
+{
+  "name": "XPS Intelligence Sync",
+  "description": "Bidirectional sync between GitHub and Docker for XPS Intelligence Frontend",
+  "url": "https://github.com/InfinityXOneSystems/XPS-INTELLIGENCE-FRONTEND",
+  "hook_attributes": {
+    "url": "http://localhost:3001/webhook",
+    "active": true
+  },
+  "redirect_url": "http://localhost:3001/auth/callback",
+  "callback_urls": [
+    "http://localhost:3001/auth/callback"
+  ],
+  "public": false,
+  "default_permissions": {
+    "contents": "write",
+    "deployments": "write",
+    "checks": "write",
+    "actions": "read",
+    "issues": "write",
+    "statuses": "write",
+    "metadata": "read"
+  },
+  "default_events": [
+    "push",
+    "pull_request",
+    "workflow_run",
+    "deployment",
+    "deployment_status",
+    "check_run",
+    "check_suite"
+  ]
+}

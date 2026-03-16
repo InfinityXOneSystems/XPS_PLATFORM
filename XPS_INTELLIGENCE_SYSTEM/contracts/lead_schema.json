@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/InfinityXOneSystems/XPS_INTELLIGENCE_SYSTEM/contracts/lead_schema.json",
+  "title": "Lead",
+  "description": "Universal lead record schema for the XPS Intelligence Platform.",
+  "type": "object",
+  "required": ["company"],
+  "properties": {
+    "id": {
+      "type": ["integer", "string"],
+      "description": "Unique lead identifier (integer from DB or string from scraper)."
+    },
+    "company": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Business / company name. Required."
+    },
+    "company_name": {
+      "type": "string",
+      "description": "Alias for company, used by some scrapers and the PostgreSQL schema."
+    },
+    "contact_name": {
+      "type": "string",
+      "description": "Primary contact full name."
+    },
+    "phone": {
+      "type": "string",
+      "pattern": "^[\\+]?[\\d\\s\\-\\(\\)\\.]{7,20}$",
+      "description": "Primary business phone number."
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "description": "Primary business email address."
+    },
+    "website": {
+      "type": "string",
+      "format": "uri",
+      "description": "Company website URL (must include http:// or https://)."
+    },
+    "linkedin": {
+      "type": "string",
+      "format": "uri",
+      "description": "LinkedIn company profile URL."
+    },
+    "address": {
+      "type": "string",
+      "description": "Street address."
+    },
+    "city": {
+      "type": "string",
+      "description": "City where the business is located."
+    },
+    "state": {
+      "type": "string",
+      "description": "US state abbreviation (e.g. OH, AZ) or full name."
+    },
+    "country": {
+      "type": "string",
+      "default": "US",
+      "description": "ISO 3166-1 alpha-2 country code (default: US)."
+    },
+    "industry": {
+      "type": "string",
+      "description": "Industry or trade category (e.g. Epoxy, Concrete, SurfacePrep)."
+    },
+    "category": {
+      "type": "string",
+      "description": "Scraper-assigned category keyword; mirrors industry when not explicitly set."
+    },
+    "keyword": {
+      "type": "string",
+      "description": "Search keyword used to discover this lead."
+    },
+    "rating": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "Business rating on a 0–5 scale (e.g. Google Maps star rating)."
+    },
+    "reviews": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of published reviews."
+    },
+    "lead_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Composite quality score (0–100) assigned by the scoring engine."
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Alias for lead_score used in legacy pipeline stages."
+    },
+    "tier": {
+      "type": "string",
+      "enum": ["HOT", "WARM", "COLD"],
+      "description": "Lead priority tier: HOT ≥ 75, WARM ≥ 50, COLD < 50."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["new", "contacted", "qualified", "closed", "rejected"],
+      "default": "new",
+      "description": "Lead lifecycle status."
+    },
+    "source": {
+      "type": "string",
+      "description": "Data source identifier (e.g. google_maps, yelp, bing_maps)."
+    },
+    "date_scraped": {
+      "type": "string",
+      "description": "ISO 8601 date-time when the lead was scraped."
+    },
+    "date_discovered": {
+      "type": "string",
+      "description": "ISO 8601 date (YYYY-MM-DD) when the lead was first discovered."
+    },
+    "last_contacted": {
+      "type": "string",
+      "description": "ISO 8601 date-time of the most recent outreach attempt."
+    },
+    "_validation": {
+      "type": "object",
+      "description": "Internal validation metadata attached by the validation pipeline.",
+      "properties": {
+        "score": { "type": "number" },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}

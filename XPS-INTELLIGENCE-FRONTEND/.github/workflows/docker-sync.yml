@@ -1,0 +1,100 @@
+name: Docker Sync
+
+on:
+  push:
+    branches: [main, master, develop]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to sync to Docker'
+        required: false
+        default: 'main'
+
+concurrency:
+  group: docker-sync-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  notify-docker:
+    name: Notify Docker of Push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      deployments: write
+      statuses: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Mark deployment pending
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GIT_SHA: ${{ github.sha }}
+        run: node scripts/report-to-github.js commit_status pending
+
+      - name: Trigger Docker webhook
+        env:
+          DOCKER_WEBHOOK_URL: ${{ vars.DOCKER_WEBHOOK_URL }}
+          GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
+        run: |
+          if [ -z "$DOCKER_WEBHOOK_URL" ]; then
+            echo "::notice::DOCKER_WEBHOOK_URL is not configured — skipping Docker trigger"
+            exit 0
+          fi
+
+          PAYLOAD=$(cat << 'EOF'
+          {
+            "ref": "${{ github.ref }}",
+            "after": "${{ github.sha }}",
+            "repository": {
+              "name": "${{ github.event.repository.name }}",
+              "owner": { "login": "${{ github.repository_owner }}" }
+            }
+          }
+          EOF
+          )
+
+          SIGNATURE=$(echo -n "$PAYLOAD" | \
+            openssl dgst -sha256 -hmac "$GITHUB_WEBHOOK_SECRET" | \
+            sed 's/.*= /sha256=/')
+
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 10 \
+            -X POST "$DOCKER_WEBHOOK_URL/webhook" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: push" \
+            -H "X-GitHub-Delivery: ${{ github.run_id }}-${{ github.run_attempt }}" \
+            -H "X-Hub-Signature-256: $SIGNATURE" \
+            -d "$PAYLOAD")
+
+          echo "Docker webhook response: $HTTP_CODE"
+          if [ "$HTTP_CODE" != "202" ] && [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::Docker webhook returned $HTTP_CODE (expected 202)"
+          fi
+
+      - name: Mark deployment success
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GIT_SHA: ${{ github.sha }}
+        run: node scripts/report-to-github.js commit_status success
+
+      - name: Mark deployment failure
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          GIT_SHA: ${{ github.sha }}
+        run: node scripts/report-to-github.js commit_status failure

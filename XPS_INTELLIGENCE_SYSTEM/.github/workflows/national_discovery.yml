@@ -1,0 +1,39 @@
+name: national_lead_discovery
+
+# GOVERNANCE: Tier 3 — Async Intelligence (dispatch-only)
+# Schedule removed to consolidate scraping into lead_scraper.yml.
+# Invoke via: workflow_dispatch or Tier 0 dispatcher.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: national-discovery
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate queries
+        run: node agents/discovery/national_query_builder.js
+
+      - name: Run discovery
+        run: node agents/discovery/lead_discovery_engine.js

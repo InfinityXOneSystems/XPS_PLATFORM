@@ -1,0 +1,221 @@
+name: Overseer Prime — Auto Heal & Validate
+
+# Runs on every PR targeting main:
+# 1. Diagnoses the codebase for issues
+# 2. Applies automated fixes (idempotent)
+# 3. Runs full validation suite
+# 4. Reports operational status
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (diagnose only, do not apply fixes)'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: overseer-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  diagnose:
+    name: 🔍 Diagnose
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    outputs:
+      critical_count: ${{ steps.diagnose.outputs.critical_count }}
+      operational: ${{ steps.diagnose.outputs.operational }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run diagnostic scan
+        id: diagnose
+        run: |
+          set +e
+          npx tsx scripts/diagnose.ts --output .infinity/DIAGNOSTIC_REPORT.md
+          EXIT_CODE=$?
+
+          # Parse findings from report
+          if [ -f .infinity/DIAGNOSTIC_REPORT.md ]; then
+            CRITICAL=$(grep -c '🔴' .infinity/DIAGNOSTIC_REPORT.md || echo "0")
+            HIGH=$(grep -c '🟠' .infinity/DIAGNOSTIC_REPORT.md || echo "0")
+          else
+            CRITICAL=0
+            HIGH=0
+          fi
+
+          echo "critical_count=${CRITICAL}" >> "$GITHUB_OUTPUT"
+          echo "operational=$([ $EXIT_CODE -eq 0 ] && echo 'true' || echo 'false')" >> "$GITHUB_OUTPUT"
+
+          echo "## 🔍 Diagnostic Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Severity | Count |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|----------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🔴 Critical | ${CRITICAL} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| 🟠 High | ${HIGH} |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f .infinity/DIAGNOSTIC_REPORT.md ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            cat .infinity/DIAGNOSTIC_REPORT.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          exit $EXIT_CODE
+        continue-on-error: true
+
+      - name: Upload diagnostic report
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-report
+          path: .infinity/DIAGNOSTIC_REPORT.md
+          retention-days: 7
+
+  heal:
+    name: 🔧 Heal
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: diagnose
+    if: ${{ needs.diagnose.outputs.operational != 'true' || github.event.inputs.dry_run != 'true' }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.head_ref || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply automated fixes
+        id: heal
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+
+          npx tsx scripts/heal.ts $DRY_RUN_FLAG 2>&1 | tee /tmp/heal-output.txt
+
+          APPLIED=$(grep -c '✅' /tmp/heal-output.txt || echo "0")
+          echo "fixes_applied=${APPLIED}" >> "$GITHUB_OUTPUT"
+
+          echo "## 🔧 Heal Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/heal-output.txt >> "$GITHUB_STEP_SUMMARY"
+          echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+        continue-on-error: true
+
+      - name: Commit fixes
+        if: >-
+          github.event.inputs.dry_run != 'true' &&
+          github.event_name != 'workflow_dispatch'
+        run: |
+          git config user.name "overseer-prime[bot]"
+          git config user.email "overseer-prime@xps-intelligence.ai"
+
+          if git diff --quiet && git diff --staged --quiet; then
+            echo "No changes to commit — all fixes already applied"
+          else
+            git add -A
+            git commit -m "fix(overseer): automated healing pass — apply P0/P1 remediations
+
+Applied by overseer-prime-auto-heal workflow.
+Run: npx tsx scripts/diagnose.ts for details."
+            git push
+            echo "✅ Fixes committed and pushed"
+          fi
+
+  validate:
+    name: ✅ Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [diagnose, heal]
+    if: always()
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+
+      - name: Build
+        id: build
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL || 'http://localhost:3000/api' }}
+          VITE_WS_URL: ${{ vars.VITE_WS_URL || 'ws://localhost:3000' }}
+
+      - name: Generate final status
+        if: always()
+        run: |
+          BUILD_STATUS="${{ steps.build.outcome }}"
+
+          if [ "$BUILD_STATUS" = "success" ]; then
+            STATUS="✅ OPERATIONAL"
+            EXIT=0
+          else
+            STATUS="❌ NOT OPERATIONAL"
+            EXIT=1
+          fi
+
+          echo "## 🚀 Operational Status: ${STATUS}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Lint | ${{ steps.build.outcome == 'success' && '✅ Pass' || '⏭️ N/A' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| TypeScript | ${{ steps.build.outcome == 'success' && '✅ Pass' || '⏭️ N/A' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Security | ${{ steps.build.outcome == 'success' && '✅ Pass' || '⏭️ N/A' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Build | ${{ steps.build.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,52 @@
+# Dockerfile.frontend – Build and serve the Vite+React SPA on Railway
+#
+# VITE_API_URL is baked into the bundle at build time.
+# Set it in Railway → Variables for the FRONTEND service:
+#
+#   VITE_API_URL = https://${{xpsintelligencesystem.RAILWAY_PUBLIC_DOMAIN}}
+#
+# Railway resolves the reference variable to the matching backend URL for
+# each environment (production, staging, PR preview).
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 1 – install deps & build the Vite bundle
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:20-bookworm-slim AS builder
+WORKDIR /app
+
+# Accept the backend URL as a build-time argument so Railway can inject it
+# via its environment variables panel.  Defaults to the production URL.
+ARG VITE_API_URL=https://xps-intelligence.up.railway.app
+ENV VITE_API_URL=$VITE_API_URL
+
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ .
+
+# TypeScript type-check + Vite bundle (VITE_API_URL is inlined here)
+RUN npm run build
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Stage 2 – serve the static bundle
+# ─────────────────────────────────────────────────────────────────────────────
+FROM node:20-bookworm-slim
+WORKDIR /app
+
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    npm install -g serve@14
+
+COPY --from=builder /app/dist ./dist
+
+# Railway injects PORT at runtime; 3000 is the local/Docker Compose default.
+ENV PORT=3000
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD sh -c "curl -f http://localhost:${PORT}/ || exit 1"
+
+# -s: SPA mode — unknown paths serve index.html (required for React Router)
+# -l: listen on the PORT Railway provides
+CMD ["sh", "-c", "serve -s dist -l ${PORT}"]

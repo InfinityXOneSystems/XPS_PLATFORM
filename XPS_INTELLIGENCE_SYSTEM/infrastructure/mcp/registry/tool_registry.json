@@ -1,0 +1,186 @@
+{
+  "version": "1.0.0",
+  "description": "XPS Intelligence MCP Tool Registry",
+  "categories": {
+    "github_tools": [
+      "github_list_repos",
+      "github_create_pr",
+      "github_get_file",
+      "github_push_commit",
+      "github_list_issues",
+      "github_create_issue"
+    ],
+    "browser_tools": [
+      "browser_navigate",
+      "browser_screenshot",
+      "browser_click",
+      "browser_type",
+      "browser_extract_text",
+      "browser_extract_links"
+    ],
+    "scraping_tools": [
+      "scrape_google_maps",
+      "scrape_yelp",
+      "scrape_directory",
+      "scrape_linkedin",
+      "scrape_website"
+    ],
+    "sandbox_tools": [
+      "sandbox_run_python",
+      "sandbox_run_node",
+      "sandbox_run_shell",
+      "sandbox_build_docker",
+      "sandbox_destroy"
+    ],
+    "memory_tools": [
+      "memory_store",
+      "memory_retrieve",
+      "memory_search",
+      "memory_delete",
+      "memory_list_namespaces"
+    ],
+    "database_tools": [
+      "db_query",
+      "db_insert",
+      "db_update",
+      "db_delete",
+      "vector_search",
+      "vector_upsert"
+    ],
+    "automation_tools": [
+      "run_pipeline",
+      "trigger_workflow",
+      "schedule_task",
+      "send_email",
+      "send_webhook"
+    ]
+  },
+  "tools": [
+    {
+      "name": "github_list_repos",
+      "category": "github_tools",
+      "description": "List GitHub repositories for an organisation or user",
+      "server": "builtin",
+      "handler": "github_list_repos",
+      "required_params": ["owner"],
+      "optional_params": ["type", "per_page"]
+    },
+    {
+      "name": "github_get_file",
+      "category": "github_tools",
+      "description": "Get the contents of a file from a GitHub repository",
+      "server": "builtin",
+      "handler": "github_get_file",
+      "required_params": ["owner", "repo", "path"],
+      "optional_params": ["ref"]
+    },
+    {
+      "name": "browser_navigate",
+      "category": "browser_tools",
+      "description": "Navigate to a URL in a headless browser",
+      "server": "playwright_gateway",
+      "handler": "navigate",
+      "required_params": ["url"],
+      "optional_params": ["wait_for", "timeout_ms"]
+    },
+    {
+      "name": "browser_screenshot",
+      "category": "browser_tools",
+      "description": "Take a screenshot of the current browser page",
+      "server": "playwright_gateway",
+      "handler": "screenshot",
+      "required_params": [],
+      "optional_params": ["full_page", "selector"]
+    },
+    {
+      "name": "scrape_google_maps",
+      "category": "scraping_tools",
+      "description": "Scrape contractor leads from Google Maps",
+      "server": "builtin",
+      "handler": "scrape_google_maps",
+      "required_params": ["query", "location"],
+      "optional_params": ["max_results"]
+    },
+    {
+      "name": "sandbox_run_python",
+      "category": "sandbox_tools",
+      "description": "Execute Python code in an isolated sandbox container",
+      "server": "sandbox",
+      "handler": "run_python",
+      "required_params": ["code"],
+      "optional_params": ["timeout_s", "packages"]
+    },
+    {
+      "name": "sandbox_run_node",
+      "category": "sandbox_tools",
+      "description": "Execute Node.js code in an isolated sandbox container",
+      "server": "sandbox",
+      "handler": "run_node",
+      "required_params": ["code"],
+      "optional_params": ["timeout_s", "packages"]
+    },
+    {
+      "name": "memory_store",
+      "category": "memory_tools",
+      "description": "Store a key-value pair in agent memory",
+      "server": "builtin",
+      "handler": "memory_store",
+      "required_params": ["namespace", "key", "value"],
+      "optional_params": ["ttl_s"]
+    },
+    {
+      "name": "memory_retrieve",
+      "category": "memory_tools",
+      "description": "Retrieve a value from agent memory by key",
+      "server": "builtin",
+      "handler": "memory_retrieve",
+      "required_params": ["namespace", "key"],
+      "optional_params": []
+    },
+    {
+      "name": "memory_search",
+      "category": "memory_tools",
+      "description": "Semantic search over agent memory",
+      "server": "builtin",
+      "handler": "memory_search",
+      "required_params": ["namespace", "query"],
+      "optional_params": ["top_k"]
+    },
+    {
+      "name": "db_query",
+      "category": "database_tools",
+      "description": "Run a read-only SQL query against the lead database",
+      "server": "builtin",
+      "handler": "db_query",
+      "required_params": ["sql"],
+      "optional_params": ["params"]
+    },
+    {
+      "name": "vector_search",
+      "category": "database_tools",
+      "description": "Semantic vector search over the Infinity Library",
+      "server": "builtin",
+      "handler": "vector_search",
+      "required_params": ["query"],
+      "optional_params": ["collection", "top_k", "filter"]
+    },
+    {
+      "name": "run_pipeline",
+      "category": "automation_tools",
+      "description": "Trigger a named XPS pipeline (score, dedup, enrich, etc.)",
+      "server": "builtin",
+      "handler": "run_pipeline",
+      "required_params": ["pipeline_name"],
+      "optional_params": ["params"]
+    },
+    {
+      "name": "send_email",
+      "category": "automation_tools",
+      "description": "Send an outreach email via Nodemailer",
+      "server": "builtin",
+      "handler": "send_email",
+      "required_params": ["to", "subject", "body"],
+      "optional_params": ["from_name", "reply_to", "template"]
+    }
+  ]
+}

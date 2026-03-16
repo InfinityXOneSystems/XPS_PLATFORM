@@ -1,0 +1,156 @@
+name: Infinity Orchestrator
+
+# GOVERNANCE: Tier 4 — Self-Healing (no push trigger)
+# Auth: Infinity Orchestrator GitHub App (GH_APP_ID + GH_APP_PRIVATE_KEY)
+#       Falls back to GITHUB_TOKEN for single-repo operations.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  repository_dispatch:
+    types:
+      - scrape
+      - validate
+      - score
+      - outreach
+      - export
+      - pipeline
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'Pipeline stage to run'
+        required: true
+        default: 'pipeline'
+        type: choice
+        options:
+          - scrape
+          - validate
+          - score
+          - outreach
+          - export
+          - pipeline
+
+concurrency:
+  group: infinity-orchestrator
+  cancel-in-progress: false
+
+jobs:
+  orchestrate:
+    name: Infinity Orchestrator — Pipeline Dispatch
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write
+      id-token: write
+
+    # Only run on comment commands or explicit dispatch
+    if: >
+      github.event_name == 'repository_dispatch' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' &&
+       contains(github.event.comment.body, '/pipeline') ||
+       contains(github.event.comment.body, '/scrape') ||
+       contains(github.event.comment.body, '/score'))
+
+    steps:
+      # ── Mint Infinity Orchestrator App token ─────────────────────────────
+      - name: Generate Infinity Orchestrator App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: "2494652"  # Infinity Orchestrator App (hardcoded; only private key secret needed)
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          repositories: >-
+            XPS_INTELLIGENCE_SYSTEM,
+            LEADS,
+            XPS-INTELLIGENCE-FRONTEND
+        continue-on-error: true
+
+      - name: Resolve token
+        id: token
+        run: |
+          if [ -n "${{ steps.app-token.outputs.token }}" ]; then
+            echo "token=${{ steps.app-token.outputs.token }}" >> $GITHUB_OUTPUT
+            echo "✅ Infinity Orchestrator GitHub App token active"
+          else
+            echo "token=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_OUTPUT
+            echo "⚠️  Using GITHUB_TOKEN fallback"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.token.outputs.token }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Determine stage
+        id: stage
+        run: |
+          STAGE="${{ github.event.inputs.stage || github.event.action || 'pipeline' }}"
+          # Parse comment command
+          COMMENT="${{ github.event.comment.body || '' }}"
+          if echo "$COMMENT" | grep -qiE '^/scrape'; then STAGE=scrape; fi
+          if echo "$COMMENT" | grep -qiE '^/validate'; then STAGE=validate; fi
+          if echo "$COMMENT" | grep -qiE '^/score'; then STAGE=score; fi
+          if echo "$COMMENT" | grep -qiE '^/outreach'; then STAGE=outreach; fi
+          if echo "$COMMENT" | grep -qiE '^/pipeline'; then STAGE=pipeline; fi
+          echo "stage=$STAGE" >> $GITHUB_OUTPUT
+
+      - name: Run pipeline stage — ${{ steps.stage.outputs.stage }}
+        env:
+          STAGE: ${{ steps.stage.outputs.stage }}
+          # Expose App credentials for sub-scripts (e.g. publish_leads_to_repos.py)
+          GH_APP_ID: "2494652"  # Infinity Orchestrator App ID
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          case "$STAGE" in
+            scrape)   node scrapers/engine.js ;;
+            validate) node validation/lead_validation_pipeline.js ;;
+            score)    node agents/scoring/scoring_pipeline.js ;;
+            outreach) node outreach/outreach_engine.js ;;
+            export)   node tools/export_snapshot.js ;;
+            pipeline)
+              node scrapers/engine.js
+              node validation/lead_validation_pipeline.js
+              node agents/scoring/scoring_pipeline.js
+              node tools/export_snapshot.js
+              python scripts/publish_leads_to_repos.py
+              ;;
+            *)        echo "Unknown stage: $STAGE" && exit 1 ;;
+          esac
+
+      - name: Commit results
+        run: |
+          git config user.name  "infinity-orchestrator[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add leads/ data/ || true
+          git diff --staged --quiet || git commit -m "chore: orchestrator run [skip ci] — ${{ steps.stage.outputs.stage }} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
+
+  syntax-check:
+    name: Syntax Check — Infinity Orchestrator
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: node --check agents/orchestrator/infinity_orchestrator.js

@@ -1,0 +1,21 @@
+# Dockerfile.scraper – Python async scraper worker
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System dependencies for Playwright
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+        curl wget gnupg ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright with browser binaries
+RUN python -m playwright install --with-deps chromium
+
+COPY . .
+
+# Run the async scraping engine via task_queue (NOT python -m queue.worker)
+CMD ["python", "-m", "task_queue.worker", "--once"]

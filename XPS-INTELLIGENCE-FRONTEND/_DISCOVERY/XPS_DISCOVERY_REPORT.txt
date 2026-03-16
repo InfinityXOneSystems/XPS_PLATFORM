@@ -1,0 +1,52 @@
+
+Component                               Status  Details                                                                
+---------                               ------  -------                                                                
+Frontend Root                           OK      C:\XPS_PLATFORM\XPS-INTELLIGENCE-FRONTEND                              
+Backend Root                            OK      C:\XPS_INTELLIGENCE_SYSTEM                                             
+NodeJS                                  OK      v24.14.0                                                               
+NPM                                     OK      11.9.0                                                                 
+Docker Engine                           OK      29.2.0                                                                 
+Docker Containers                       WARN    No running containers                                                  
+Docker Images                           OK      xps_platform-frontend:latest, xps_platform-backend:latest, node:20, ...
+Port 3000                               CLOSED  No listener                                                            
+Port 4000                               CLOSED  No listener                                                            
+Port 5000                               OPEN    Listening                                                              
+Port 5432                               CLOSED  No listener                                                            
+Port 6379                               CLOSED  No listener                                                            
+Port 8080                               CLOSED  No listener                                                            
+Frontend package.json                   OK      Found                                                                  
+Frontend Framework                      OK      Vite detected                                                          
+Vite Config                             OK      Present                                                                
+Next Config                             WARN    Not found                                                              
+Frontend src/                           OK      Present                                                                
+Frontend app/                           WARN    Missing                                                                
+Frontend pages/                         OK      Present                                                                
+Frontend UI Live                        OK      http://localhost:5000 responded with 200                               
+API http://localhost:5000/api/chat      OK      HTTP 200                                                               
+API http://localhost:5000/api/scrape    OK      HTTP 200                                                               
+API http://localhost:5000/api/run-agent OK      HTTP 200                                                               
+API http://localhost:5000/api/logs      OK      HTTP 200                                                               
+API http://localhost:3000/api/chat      FAIL    No response                                                            
+API http://localhost:3000/api/scrape    FAIL    No response                                                            
+.env.local                              OK      Found                                                                  
+Groq API Key                            OK      AI_GROQ_API_KEY present                                                
+Postgres ENV                            OK      XPS_PGHOST present                                                     
+GitHub Token ENV                        WARN    GITHUB_TOKEN not found in .env.local                                   
+node_modules                            OK      Present                                                                
+Package groq-sdk                        OK      Installed                                                              
+Package playwright                      WARN    Not found                                                              
+Package pg                              OK      Installed                                                              
+Package axios                           WARN    Not found                                                              
+Agents Folder                           FAIL    Missing                                                                
+lib Folder                              WARN    Missing                                                                
+pages/api                               OK      chat.js, groq-test.js                                                  
+app/api                                 WARN    Missing                                                                
+Backend Workflows                       OK      lead_scraper.yml, national_discovery.yml, system_validation.yml        
+GitHub CLI                              OK      Authenticated                                                          
+Compose File                            WARN    No docker-compose.yml / compose.yml found                              
+System Readiness                        PARTIAL Frontend and core env exist; API/autonomy still need validation        
+Frontend/Backend Wiring                 OK      At least one API endpoint responded                                    
+Autonomous Agent Files                  FAIL    No agent implementation found                                          
+
+
+

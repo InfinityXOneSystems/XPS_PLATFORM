@@ -1,0 +1,134 @@
+name: Lint and Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: lint-test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+  typecheck:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check (strict)
+        run: npm run type-check
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+  build-verify:
+    name: Build Verification
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, security-audit]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Production build
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL || 'https://xpsintelligencesystem-production.up.railway.app/api' }}
+          VITE_WS_URL: ${{ vars.VITE_WS_URL || 'wss://xpsintelligencesystem-production.up.railway.app' }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-dist-${{ github.sha }}
+          path: dist/
+          retention-days: 7
+
+  summary:
+    name: Pre-deploy Summary
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, security-audit, build-verify]
+    if: always()
+
+    steps:
+      - name: Report status
+        run: |
+          echo "## Pre-Deployment Checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| ESLint | ${{ needs.lint.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| TypeScript | ${{ needs.typecheck.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Security Audit | ${{ needs.security-audit.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Build | ${{ needs.build-verify.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ needs.lint.result }}" == "success" && "${{ needs.typecheck.result }}" == "success" && "${{ needs.build-verify.result }}" == "success" ]]; then
+            echo "🚀 **Ready to deploy.**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "🚫 **Not ready to deploy — fix the failures above.**" >> "$GITHUB_STEP_SUMMARY"
+          fi

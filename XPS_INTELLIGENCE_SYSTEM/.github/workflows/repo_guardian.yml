@@ -1,0 +1,319 @@
+name: Repo Guardian — Autonomous Monitor & Fix
+
+# GOVERNANCE: Tier 4 — Self-Healing (dispatch-only)
+# Schedule and push triggers removed to prevent uncontrolled cascade.
+# Now runs weekly on Sunday via Tier 0 dispatcher or manual dispatch.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  schedule:
+    # Weekly on Sunday at midnight UTC (reduced from every 6h)
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Run mode: full | check-only'
+        required: false
+        default: 'full'
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: repo-guardian
+  cancel-in-progress: false
+
+jobs:
+  # ── 1. System Health Check ──────────────────────────────────────────────────
+  health-check:
+    name: System Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      has_issues: ${{ steps.health.outputs.has_issues }}
+      issue_summary: ${{ steps.health.outputs.issue_summary }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        id: tests
+        run: npm test 2>&1 | tee /tmp/test_output.txt
+        continue-on-error: true
+
+      - name: Check for UTF-16 encoded JS files
+        id: utf16
+        run: |
+          FOUND=0
+          FILES=""
+          while IFS= read -r -d '' f; do
+            if file "$f" | grep -q "UTF-16"; then
+              FILES="$FILES $f"
+              FOUND=$((FOUND+1))
+            fi
+          done < <(find . -name "*.js" -not -path "*/node_modules/*" -not -path "*/.next/*" -print0)
+          echo "utf16_count=$FOUND" >> $GITHUB_OUTPUT
+          echo "utf16_files=$FILES" >> $GITHUB_OUTPUT
+          if [ "$FOUND" -gt 0 ]; then
+            echo "Found $FOUND UTF-16 encoded JS files: $FILES"
+          else
+            echo "No UTF-16 files found."
+          fi
+
+      - name: Validate workflow YAML syntax
+        id: yaml
+        run: |
+          FAIL=0
+          for f in .github/workflows/*.yml; do
+            python3 -c "import yaml; yaml.safe_load(open('$f'))" 2>&1 || FAIL=1
+          done
+          echo "yaml_ok=$([[ $FAIL == 0 ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+
+      - name: Check required directories and files
+        id: dirs
+        run: |
+          MISSING=""
+          for d in data/leads data/datasets data/outreach agents/scoring scrapers db validation outreach; do
+            [ -d "$d" ] || MISSING="$MISSING $d"
+          done
+          for f in package.json README.md; do
+            [ -f "$f" ] || MISSING="$MISSING $f"
+          done
+          echo "missing_items=$MISSING" >> $GITHUB_OUTPUT
+
+      - name: Validate scoring pipeline
+        id: scoring
+        run: |
+          node agents/scoring/scoring_pipeline.js 2>&1 && echo "scoring_ok=true" >> $GITHUB_OUTPUT || echo "scoring_ok=false" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Collect health summary
+        id: health
+        run: |
+          ISSUES=()
+          [ "${{ steps.tests.outcome }}" != "success" ] && ISSUES+=("tests_failed")
+          [ "${{ steps.utf16.outputs.utf16_count }}" != "0" ] && ISSUES+=("utf16_files")
+          [ "${{ steps.yaml.outputs.yaml_ok }}" != "true" ] && ISSUES+=("yaml_invalid")
+          [ -n "${{ steps.dirs.outputs.missing_items }}" ] && ISSUES+=("missing_dirs")
+          [ "${{ steps.scoring.outputs.scoring_ok }}" != "true" ] && ISSUES+=("scoring_failed")
+
+          if [ ${#ISSUES[@]} -gt 0 ]; then
+            echo "has_issues=true" >> $GITHUB_OUTPUT
+            echo "issue_summary=${ISSUES[*]}" >> $GITHUB_OUTPUT
+            echo "Health issues detected: ${ISSUES[*]}"
+          else
+            echo "has_issues=false" >> $GITHUB_OUTPUT
+            echo "issue_summary=none" >> $GITHUB_OUTPUT
+            echo "All health checks passed."
+          fi
+
+      - name: Write health summary
+        if: always()
+        run: |
+          echo "## Repo Guardian Health Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit Tests | ${{ steps.tests.outcome == 'success' && '✅ Pass' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| UTF-16 Files | ${{ steps.utf16.outputs.utf16_count == '0' && '✅ None' || '❌ Found' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Workflow YAML | ${{ steps.yaml.outputs.yaml_ok == 'true' && '✅ Valid' || '❌ Invalid' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Required Dirs | ${{ steps.dirs.outputs.missing_items == '' && '✅ Present' || '⚠️ Missing' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Scoring Pipeline | ${{ steps.scoring.outputs.scoring_ok == 'true' && '✅ OK' || '❌ Fail' }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ── 2. Auto-Fix Common Issues ───────────────────────────────────────────────
+  auto-fix:
+    name: Auto-Fix Issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: health-check
+    if: >
+      needs.health-check.outputs.has_issues == 'true' &&
+      github.event.inputs.mode != 'check-only'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fix UTF-16 encoded JS files
+        run: |
+          FIXED=0
+          while IFS= read -r -d '' f; do
+            if file "$f" | grep -q "UTF-16"; then
+              echo "Converting $f from UTF-16 to UTF-8..."
+              iconv -f UTF-16 -t UTF-8 "$f" -o "${f}.utf8" && mv "${f}.utf8" "$f"
+              FIXED=$((FIXED+1))
+            fi
+          done < <(find . -name "*.js" -not -path "*/node_modules/*" -not -path "*/.next/*" -print0)
+          echo "Fixed $FIXED UTF-16 file(s)"
+
+      - name: Ensure required data directories exist
+        run: |
+          for d in data/leads data/datasets data/outreach; do
+            mkdir -p "$d"
+            # Create placeholder if directory was just created
+            if [ ! "$(ls -A $d 2>/dev/null)" ]; then
+              echo '{"created":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","note":"placeholder"}' > "$d/.keep.json"
+            fi
+          done
+
+      - name: Regenerate scored leads if missing
+        run: |
+          if [ ! -f "data/leads/scored_leads.json" ] || [ ! -f "data/leads/scoring_report.json" ]; then
+            echo "Regenerating scored leads..."
+            node agents/scoring/scoring_pipeline.js || true
+          else
+            echo "Scored leads already present."
+          fi
+
+      - name: Run living docs update
+        run: node tools/docs/evolve_docs.js || true
+
+      - name: Commit auto-fixes
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+          else
+            git commit -m "fix(guardian): auto-fix system issues [skip ci] [guardian-bot]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi
+
+  # ── 3. Create Issues for Non-Auto-Fixable Problems ─────────────────────────
+  create-issues:
+    name: Create GitHub Issues for Failures
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [health-check, auto-fix]
+    if: >
+      always() &&
+      needs.health-check.outputs.has_issues == 'true' &&
+      contains(needs.health-check.outputs.issue_summary, 'tests_failed')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create issue for test failures
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = '${{ needs.health-check.outputs.issue_summary }}';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            // Check for existing open issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'guardian-auto,test-failure'
+            });
+
+            if (issues.data.length > 0) {
+              console.log('Open guardian issue already exists, skipping creation.');
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[Guardian] System health issues detected — ${new Date().toISOString().split('T')[0]}`,
+              body: [
+                '## 🤖 Repo Guardian Alert',
+                '',
+                'The Repo Guardian detected the following issues during the automated health check:',
+                '',
+                '```',
+                summary.split(' ').join('\n- '),
+                '```',
+                '',
+                `**Workflow Run:** ${runUrl}`,
+                '',
+                '### Recommended Actions',
+                '- Review the failing tests and fix any regressions',
+                '- Check workflow logs for detailed error messages',
+                '- Run `npm test` locally to reproduce',
+                '',
+                '_This issue was automatically created by the Repo Guardian workflow._'
+              ].join('\n'),
+              labels: ['guardian-auto', 'test-failure', 'automated']
+            });
+
+  # ── 4. Periodic Docs Refresh ────────────────────────────────────────────────
+  refresh-docs:
+    name: Refresh Living Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: health-check
+    if: needs.health-check.outputs.has_issues == 'false'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update living docs
+        run: node tools/docs/evolve_docs.js
+
+      - name: Commit docs update
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/STATUS.md docs/TODO.md docs/SELF_REVIEW.md docs/REPO_MAP.md
+          if git diff --cached --quiet; then
+            echo "Docs already up to date."
+          else
+            git commit -m "docs: guardian — refresh living docs [skip ci]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi

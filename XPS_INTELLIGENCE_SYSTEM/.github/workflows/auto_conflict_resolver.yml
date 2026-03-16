@@ -1,0 +1,569 @@
+name: 🤖 Autonomous Merge Conflict Resolver
+
+# Fully autonomous, zero-human, recursive E2E conflict resolution.
+# Triggers on every push/PR, plus a scheduled 15-minute sweep so no
+# conflict ever survives longer than one CI cycle.
+#
+# Resolution pipeline:
+#   1. Detect conflict markers in any text file
+#   2. Apply type-aware strategies (union, ours, theirs, additive, json)
+#   3. Commit resolved files back to the same branch
+#   4. Re-verify — loop until clean (up to MAX_PASSES times)
+#   5. Post PR comment with resolution summary
+#   6. Open a GitHub issue if anything remains unresolvable
+
+on:
+  push:
+    branches-ignore:
+      - main          # main is always merged-in, never has unresolved conflicts
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, develop, staging]
+  schedule:
+    - cron: '0 * * * *'    # Hourly sweep — catch any lingering conflicts without excessive CI load
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Branch to resolve conflicts on (empty = current)'
+        required: false
+        default: ''
+      strategy:
+        description: 'Override resolution strategy (union|ours|theirs|additive|json)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run — detect without modifying files'
+        required: false
+        default: 'false'
+        type: choice
+        options: [true, false]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: conflict-resolver-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MAX_PASSES: 3     # Maximum resolution loops before giving up
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 1: Detect conflicts quickly (read-only, safe on forks)
+  # ────────────────────────────────────────────────────────────────────────────
+  detect:
+    name: 🔍 Detect Conflict Markers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      conflicts_found: ${{ steps.scan.outputs.conflicts_found }}
+      conflict_files: ${{ steps.scan.outputs.conflict_files }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for conflict markers
+        id: scan
+        run: |
+          set +e   # don't fail on grep non-match
+          CONFLICT_FILES=$(grep -rl "^<<<<<<< " . \
+            --include="*.py" --include="*.js" --include="*.ts" \
+            --include="*.tsx" --include="*.jsx" --include="*.json" \
+            --include="*.yml" --include="*.yaml" --include="*.md" \
+            --include="*.txt" --include="*.sh" --include="*.env" \
+            --include="*.sql" --include="*.cfg" --include="*.toml" \
+            --include="*.gitignore" --include="*.gitattributes" \
+            2>/dev/null \
+            | grep -v "\.git/" \
+            | grep -v "node_modules/" \
+            | grep -v "__pycache__/" \
+            | head -50)
+
+          if [ -n "$CONFLICT_FILES" ]; then
+            echo "conflicts_found=true" >> $GITHUB_OUTPUT
+            # Store as multiline output
+            {
+              echo "conflict_files<<EOF"
+              echo "$CONFLICT_FILES"
+              echo "EOF"
+            } >> $GITHUB_OUTPUT
+            echo "⚠️ Conflict markers found in the following files:"
+            echo "$CONFLICT_FILES"
+          else
+            echo "conflicts_found=false" >> $GITHUB_OUTPUT
+            echo "conflict_files=" >> $GITHUB_OUTPUT
+            echo "✅ No conflict markers found."
+          fi
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 2: Autonomous resolution (only on same-repo PRs / direct pushes)
+  # ────────────────────────────────────────────────────────────────────────────
+  resolve:
+    name: 🔧 Auto-Resolve Conflicts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: detect
+    if: |
+      needs.detect.outputs.conflicts_found == 'true' &&
+      (
+        github.event_name == 'push' ||
+        github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'schedule' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        )
+      )
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git identity
+        run: |
+          git config user.name  "xps-conflict-resolver[bot]"
+          git config user.email "xps-conflict-resolver[bot]@users.noreply.github.com"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run autonomous conflict resolution (pass 1)
+        id: resolve_pass1
+        run: |
+          python scripts/auto_resolve_conflicts.py \
+            --repo-root . \
+            ${{ github.event.inputs.strategy != '' && format('--strategy {0}', github.event.inputs.strategy) || '' }} \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            2>&1 | tee /tmp/resolver_pass1.log
+
+          # Check if any conflicts remain
+          REMAINING=$(grep -rl "^<<<<<<< " . \
+            --include="*.py" --include="*.js" --include="*.ts" \
+            --include="*.tsx" --include="*.json" --include="*.yml" \
+            --include="*.yaml" --include="*.md" --include="*.txt" \
+            --include="*.sh" --include="*.gitignore" \
+            2>/dev/null | grep -v "\.git/" | grep -v "node_modules/" || true)
+
+          if [ -z "$REMAINING" ]; then
+            echo "pass1_clean=true" >> $GITHUB_OUTPUT
+          else
+            echo "pass1_clean=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit resolved files (pass 1)
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes from pass 1."
+          else
+            git commit -m "fix: auto-resolve merge conflicts [pass 1] [conflict-resolver-bot] [skip ci]"
+          fi
+
+      - name: Run autonomous conflict resolution (pass 2 — if needed)
+        if: steps.resolve_pass1.outputs.pass1_clean == 'false'
+        id: resolve_pass2
+        run: |
+          python scripts/auto_resolve_conflicts.py \
+            --repo-root . \
+            ${{ github.event.inputs.strategy != '' && format('--strategy {0}', github.event.inputs.strategy) || '' }} \
+            2>&1 | tee /tmp/resolver_pass2.log
+
+          REMAINING=$(grep -rl "^<<<<<<< " . \
+            --include="*.py" --include="*.js" --include="*.ts" \
+            --include="*.tsx" --include="*.json" --include="*.yml" \
+            --include="*.yaml" --include="*.md" --include="*.txt" \
+            --include="*.sh" --include="*.gitignore" \
+            2>/dev/null | grep -v "\.git/" | grep -v "node_modules/" || true)
+
+          if [ -z "$REMAINING" ]; then
+            echo "pass2_clean=true" >> $GITHUB_OUTPUT
+          else
+            echo "pass2_clean=false" >> $GITHUB_OUTPUT
+            echo "REMAINING_FILES<<EOF" >> $GITHUB_ENV
+            echo "$REMAINING" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+
+      - name: Commit resolved files (pass 2)
+        if: steps.resolve_pass2.outcome == 'success' && github.event.inputs.dry_run != 'true'
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No additional changes from pass 2."
+          else
+            git commit -m "fix: auto-resolve merge conflicts [pass 2] [conflict-resolver-bot] [skip ci]"
+          fi
+
+      - name: Final clean state check
+        id: final_check
+        run: |
+          REMAINING=$(grep -rl "^<<<<<<< " . \
+            --include="*.py" --include="*.js" --include="*.ts" \
+            --include="*.tsx" --include="*.json" --include="*.yml" \
+            --include="*.yaml" --include="*.md" --include="*.txt" \
+            --include="*.sh" --include="*.gitignore" \
+            2>/dev/null | grep -v "\.git/" | grep -v "node_modules/" || true)
+
+          if [ -z "$REMAINING" ]; then
+            echo "clean=true" >> $GITHUB_OUTPUT
+            echo "✅ Repository is conflict-free after autonomous resolution."
+          else
+            echo "clean=false" >> $GITHUB_OUTPUT
+            echo "unresolved_files<<EOF" >> $GITHUB_OUTPUT
+            echo "$REMAINING" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "⚠️ Some files could not be auto-resolved: $REMAINING"
+          fi
+
+      - name: Push resolved branch
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+          BRANCH="${{ github.event.pull_request.head.ref || github.ref_name }}"
+          echo "Pushing to branch: $BRANCH"
+          for attempt in 1 2 3; do
+            git push origin HEAD:"$BRANCH" && break || {
+              echo "Push attempt $attempt failed — rebasing..."
+              git fetch origin "$BRANCH" || true
+              git rebase origin/"$BRANCH" --strategy-option=ours || true
+              # Re-run resolver if rebase introduced new conflicts; log all output
+              echo "Re-running conflict resolver after rebase..."
+              python scripts/auto_resolve_conflicts.py --repo-root . && echo "Post-rebase resolver succeeded" || echo "Post-rebase resolver exited non-zero (conflicts may remain)"
+              git add -A
+              git rebase --continue --no-edit 2>&1 || git rebase --skip 2>&1 || true
+              sleep $((attempt * 3))
+            }
+          done
+
+      - name: Collect resolver logs
+        if: always()
+        run: |
+          echo "=== PASS 1 LOGS ===" > /tmp/all_resolver_logs.txt
+          cat /tmp/resolver_pass1.log >> /tmp/all_resolver_logs.txt 2>/dev/null || true
+          echo "=== PASS 2 LOGS ===" >> /tmp/all_resolver_logs.txt
+          cat /tmp/resolver_pass2.log >> /tmp/all_resolver_logs.txt 2>/dev/null || true
+
+      - name: Post PR resolution comment
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const clean = '${{ steps.final_check.outputs.clean }}' === 'true';
+            const unresolved = `${{ steps.final_check.outputs.unresolved_files || '' }}`.trim();
+            const conflictFiles = `${{ needs.detect.outputs.conflict_files }}`.trim();
+            const dryRun = '${{ github.event.inputs.dry_run }}' === 'true';
+
+            const status = clean
+              ? '✅ **All conflicts resolved autonomously** — zero humans needed.'
+              : '⚠️ **Some conflicts could not be auto-resolved** — see files below.';
+
+            const lines = [
+              '## 🤖 Autonomous Conflict Resolver',
+              '',
+              status,
+              '',
+              '### Files with conflicts detected',
+              '```',
+              conflictFiles || '(none)',
+              '```',
+            ];
+
+            if (!clean && unresolved) {
+              lines.push(
+                '',
+                '### Files requiring manual review',
+                '```',
+                unresolved,
+                '```',
+                '',
+                '> These files contain complex conflicts that the autonomous resolver could not handle.',
+                '> Please rebase manually: `git fetch origin main && git rebase origin/main`',
+              );
+            }
+
+            if (dryRun) {
+              lines.push('', '_Dry-run mode: no files were modified._');
+            } else if (clean) {
+              lines.push(
+                '',
+                '> Resolved files have been committed and pushed to this branch.',
+                '> No manual intervention required.',
+              );
+            }
+
+            lines.push('', `_Resolved at ${new Date().toISOString()} by [Autonomous Conflict Resolver](.github/workflows/auto_conflict_resolver.yml)_`);
+
+            const body = lines.join('\n');
+
+            // Upsert (avoid duplicate spam)
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Autonomous Conflict Resolver')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Open GitHub issue if conflicts remain unresolved
+        if: steps.final_check.outputs.clean == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const unresolved = `${{ steps.final_check.outputs.unresolved_files }}`.trim();
+            const branch = '${{ github.event.pull_request.head.ref || github.ref_name }}';
+            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+
+            // Check for existing open issue to avoid duplicates
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'merge-conflict,auto-resolver',
+            });
+            const existing = issues.find(i =>
+              i.title.includes('Unresolvable merge conflicts') && i.title.includes(branch)
+            );
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `🔄 Auto-resolver ran again at ${new Date().toISOString()} but conflicts persist.\n\n**Files:**\n\`\`\`\n${unresolved}\n\`\`\`\n\n[Run logs](${runUrl})`,
+              });
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `⚠️ Unresolvable merge conflicts on branch: ${branch}`,
+              labels: ['merge-conflict', 'auto-resolver', 'bug'],
+              body: [
+                '## Unresolvable Merge Conflicts',
+                '',
+                `The autonomous conflict resolver ran on branch \`${branch}\` but could not resolve all conflicts.`,
+                '',
+                '### Files requiring manual attention',
+                '```',
+                unresolved,
+                '```',
+                '',
+                '### Suggested resolution',
+                '```bash',
+                'git fetch origin main',
+                'git rebase origin/main',
+                '# Resolve conflicts manually, then:',
+                'git add .',
+                'git rebase --continue',
+                'git push --force-with-lease',
+                '```',
+                '',
+                `[View resolver run](${runUrl})`,
+                '',
+                '_This issue was opened automatically by the Autonomous Conflict Resolver._',
+              ].join('\n'),
+            });
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 3: Verify final clean state and report
+  # ────────────────────────────────────────────────────────────────────────────
+  verify:
+    name: ✅ Verify Clean State
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [detect, resolve]
+    if: always()
+
+    steps:
+      - name: Checkout (post-resolution)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+          fetch-depth: 1
+
+      - name: Final conflict scan
+        run: |
+          REMAINING=$(grep -rl "^<<<<<<< " . \
+            --include="*.py" --include="*.js" --include="*.ts" \
+            --include="*.tsx" --include="*.json" --include="*.yml" \
+            --include="*.yaml" --include="*.md" --include="*.txt" \
+            --include="*.sh" --include="*.gitignore" \
+            2>/dev/null | grep -v "\.git/" | grep -v "node_modules/" || true)
+
+          if [ -n "$REMAINING" ]; then
+            echo "❌ Conflict markers still present in:"
+            echo "$REMAINING"
+            echo ""
+            echo "These could not be auto-resolved. See the resolver job for details."
+            # Don't fail the workflow — we've already opened an issue
+            # The merge_guard will block the PR merge
+          else
+            echo "✅ Repository is completely conflict-free."
+          fi
+
+          # Always write a summary
+          {
+            echo "## Conflict Resolution Summary"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Conflicts detected | ${{ needs.detect.outputs.conflicts_found }} |"
+            echo "| Resolver ran | ${{ needs.resolve.result }} |"
+            echo "| Repository clean | $([ -z '$REMAINING' ] && echo '✅ Yes' || echo '⚠️ Partial') |"
+          } >> $GITHUB_STEP_SUMMARY
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 4: Auto-merge PR once repository is conflict-free
+  # Only fires on pull_request events (has PR context) after a clean resolution.
+  # ────────────────────────────────────────────────────────────────────────────
+  auto_merge:
+    name: 🔀 Auto-Merge (post conflict resolution)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [detect, resolve, verify]
+    if: |
+      github.event_name == 'pull_request' &&
+      needs.resolve.result == 'success'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate Infinity Orchestrator App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: "2494652"
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+        continue-on-error: true
+
+      - name: Resolve auth token
+        id: token
+        run: |
+          if [ -n "${{ steps.app-token.outputs.token }}" ]; then
+            echo "token=${{ steps.app-token.outputs.token }}" >> $GITHUB_OUTPUT
+            echo "✅ Using Infinity Orchestrator GitHub App token"
+          else
+            echo "token=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_OUTPUT
+            echo "⚠️  Falling back to GITHUB_TOKEN"
+          fi
+
+      - name: Confirm branch is conflict-free before merging
+        id: pre_merge_check
+        run: |
+          REMAINING=$(grep -rl "^<<<<<<< " . \
+            --include="*.py" --include="*.js" --include="*.ts" \
+            --include="*.tsx" --include="*.json" --include="*.yml" \
+            --include="*.yaml" --include="*.md" --include="*.txt" \
+            --include="*.sh" --include="*.gitignore" \
+            2>/dev/null | grep -v "\.git/" | grep -v "node_modules/" || true)
+
+          if [ -n "$REMAINING" ]; then
+            echo "clean=false" >> $GITHUB_OUTPUT
+            echo "⚠️  Conflicts still present — skipping auto-merge."
+            echo "$REMAINING"
+          else
+            echo "clean=true" >> $GITHUB_OUTPUT
+            echo "✅ Branch is conflict-free — proceeding with auto-merge."
+          fi
+
+      - name: Auto-merge PR via GitHub CLI
+        if: steps.pre_merge_check.outputs.clean == 'true'
+        id: merge
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          REPO="${{ github.repository }}"
+
+          STATE=$(gh pr view "$PR" --repo "$REPO" \
+            --json state,isDraft,mergeable \
+            --jq '{state:.state,isDraft:.isDraft,mergeable:.mergeable}')
+
+          IS_OPEN=$(echo "$STATE"   | python3 -c "import sys,json; print(json.load(sys.stdin).get('state',''))")
+          IS_DRAFT=$(echo "$STATE"  | python3 -c "import sys,json; print(json.load(sys.stdin).get('isDraft',''))")
+          MERGEABLE=$(echo "$STATE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('mergeable',''))")
+
+          if [ "$IS_OPEN" != "OPEN" ]; then
+            echo "ℹ️  PR #$PR is not open (state: $IS_OPEN) — nothing to merge."
+            exit 0
+          fi
+
+          if [ "$IS_DRAFT" = "True" ]; then
+            echo "Converting draft PR to ready for review..."
+            gh pr ready "$PR" --repo "$REPO" || true
+          fi
+
+          echo "Merging PR #$PR (squash)..."
+          printf "Auto-merged by Autonomous Conflict Resolver after successful conflict resolution.\n" \
+            > /tmp/merge_body.txt
+
+          gh pr merge "$PR" \
+            --repo "$REPO" \
+            --squash \
+            --subject "Merge PR #${PR}: conflicts auto-resolved and merged" \
+            --body-file /tmp/merge_body.txt \
+            --delete-branch 2>&1 || {
+              echo "⚠️  gh pr merge returned non-zero (branch delete may have failed) — checking actual merge status..."
+              FINAL_STATE=$(gh pr view "$PR" --repo "$REPO" --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")
+              if [ "$FINAL_STATE" = "MERGED" ]; then
+                echo "✅ PR #$PR is confirmed merged."
+              else
+                echo "❌ PR #$PR merge failed (state: $FINAL_STATE)."
+                exit 1
+              fi
+            }
+
+          echo "✅ PR #$PR merged successfully after autonomous conflict resolution."
+          echo "merged=true" >> $GITHUB_OUTPUT
+
+      - name: Write auto-merge summary
+        if: always()
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          {
+            echo "## 🔀 Auto-Merge After Conflict Resolution"
+            echo ""
+            echo "**Timestamp:** ${TS}"
+            echo "**PR:** #${PR}"
+            echo "**Repo:** ${{ github.repository }}"
+            echo ""
+            echo "| Step | Status |"
+            echo "|------|--------|"
+            echo "| Conflicts resolved | ${{ needs.resolve.result }} |"
+            echo "| Pre-merge clean check | ${{ steps.pre_merge_check.outputs.clean }} |"
+            echo "| Merge | ${{ steps.merge.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,128 @@
+name: Code Quality
+
+# GOVERNANCE: Tier 1 — Quality Gates
+# Push trigger restricted to main/develop only (was '**' = every branch).
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '**.js'
+      - '**.ts'
+      - '**.tsx'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - '**.js'
+      - '**.ts'
+      - '**.tsx'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+concurrency:
+  group: code-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test:
+    name: Node.js Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify export_snapshot loads without errors
+        run: |
+          node -e "
+            // Smoke-test: module must load cleanly without a live DB.
+            const mod = require('./tools/export_snapshot');
+            if (typeof mod.run !== 'function') throw new Error('export_snapshot.run not exported');
+            console.log('export_snapshot module OK');
+          "
+
+      - name: Verify validation pipeline exports
+        run: |
+          node -e "
+            const { runValidationPipeline } = require('./validation/lead_validation_pipeline');
+            const result = runValidationPipeline([], { writeReports: false });
+            if (result.summary.total !== 0) throw new Error('Expected 0 total');
+            console.log('validation pipeline module OK');
+          "
+
+      - name: Check for UTF-16 encoded JS files
+        run: |
+          FOUND=0
+          while IFS= read -r -d '' f; do
+            if file "$f" | grep -q "UTF-16"; then
+              echo "UTF-16 ENCODED: $f"
+              FOUND=$((FOUND+1))
+            fi
+          done < <(find . -name "*.js" -not -path "*/node_modules/*" -not -path "*/.next/*" -print0)
+          if [ "$FOUND" -gt 0 ]; then
+            echo "ERROR: $FOUND UTF-16 encoded JS file(s) found."
+            exit 1
+          fi
+          echo "Encoding check passed."
+
+
+  lint-dashboard:
+    name: Dashboard Lint (Next.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: dashboard
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dashboard dependencies
+        run: npm install
+
+      - name: Lint dashboard
+        run: npm run lint
+        continue-on-error: true
+
+  validate-workflows:
+    name: Validate Workflow YAML
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate YAML syntax
+        run: |
+          for f in .github/workflows/*.yml; do
+            python3 -c "import yaml, sys; yaml.safe_load(open('$f'))" && echo "OK: $f" || { echo "FAIL: $f"; exit 1; }
+          done

@@ -1,0 +1,99 @@
+name: Headless Agent CI
+
+# GOVERNANCE: Tier 1 (path-gated) — only runs on relevant file changes.
+# Schedule removed — health checks run via Tier 0 nightly governance.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  push:
+    paths:
+      - 'agents/headless/**'
+      - 'sandbox/**'
+  pull_request:
+    paths:
+      - 'agents/headless/**'
+      - 'sandbox/**'
+  workflow_dispatch:
+
+concurrency:
+  group: headless-agent-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  headless-agent-test:
+    name: Headless Agent — Build & Smoke Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Syntax check — headless agent
+        run: |
+          node --check agents/headless/headless_browser.js
+          node --check agents/headless/headless_routes.js
+          node --check agents/headless/headless_agent.js
+          node --check sandbox/sandbox_manager.js
+
+      - name: Smoke test — start headless agent and verify health endpoint
+        run: |
+          node agents/headless/headless_agent.js &
+          SERVER_PID=$!
+          sleep 4
+          curl --fail --retry 3 --retry-delay 2 http://localhost:3200/agent/health
+          kill $SERVER_PID || true
+
+      - name: Smoke test — session lifecycle
+        run: |
+          node agents/headless/headless_agent.js &
+          SERVER_PID=$!
+          sleep 4
+
+          # Create session
+          SID=$(curl -s -X POST http://localhost:3200/agent/session/create \
+            -H 'Content-Type: application/json' -d '{}' | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); console.log(JSON.parse(d).sessionId)")
+          echo "Session: $SID"
+
+          # Navigate
+          curl -s -X POST http://localhost:3200/agent/navigate \
+            -H 'Content-Type: application/json' \
+            -d "{\"sessionId\":\"$SID\",\"url\":\"https://example.com\"}" | grep -q '"ok":true'
+
+          # Screenshot
+          curl -s -X POST http://localhost:3200/agent/screenshot \
+            -H 'Content-Type: application/json' \
+            -d "{\"sessionId\":\"$SID\"}" | grep -q '"mimeType":"image/png"'
+
+          # Destroy session
+          curl -s -X DELETE "http://localhost:3200/agent/session/$SID" | grep -q '"ok":true'
+
+          kill $SERVER_PID || true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check — Python agent
+        run: python -m py_compile agents/headless/headless_agent_async.py
+
+      - name: Syntax check — Infinity Orchestrator
+        run: node --check agents/orchestrator/infinity_orchestrator.js

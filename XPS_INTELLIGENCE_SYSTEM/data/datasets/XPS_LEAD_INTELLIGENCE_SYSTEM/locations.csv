@@ -1,0 +1,174 @@
+ID,City,State,Country
+1,Chicago,IL,USA
+2,Rockford,IL,USA
+3,Peoria,IL,USA
+4,Springfield,IL,USA
+5,Naperville,IL,USA
+6,Columbus,OH,USA
+7,Cleveland,OH,USA
+8,Cincinnati,OH,USA
+9,Dayton,OH,USA
+10,Akron,OH,USA
+11,Phoenix,AZ,USA
+12,Mesa,AZ,USA
+13,Chandler,AZ,USA
+14,Scottsdale,AZ,USA
+15,Tucson,AZ,USA
+16,Birmingham,AL,USA
+17,Huntsville,AL,USA
+18,Mobile,AL,USA
+19,Anchorage,AK,USA
+20,Little Rock,AR,USA
+21,Los Angeles,CA,USA
+22,San Diego,CA,USA
+23,San Jose,CA,USA
+24,San Francisco,CA,USA
+25,Fresno,CA,USA
+26,Sacramento,CA,USA
+27,Long Beach,CA,USA
+28,Oakland,CA,USA
+29,Bakersfield,CA,USA
+30,Anaheim,CA,USA
+31,Denver,CO,USA
+32,Colorado Springs,CO,USA
+33,Aurora,CO,USA
+34,Fort Collins,CO,USA
+35,Lakewood,CO,USA
+36,Bridgeport,CT,USA
+37,Hartford,CT,USA
+38,New Haven,CT,USA
+39,Wilmington,DE,USA
+40,Jacksonville,FL,USA
+41,Miami,FL,USA
+42,Tampa,FL,USA
+43,Orlando,FL,USA
+44,St. Petersburg,FL,USA
+45,Hialeah,FL,USA
+46,Port St Lucie,FL,USA
+47,Cape Coral,FL,USA
+48,Fort Lauderdale,FL,USA
+49,Pembroke Pines,FL,USA
+50,Hollywood,FL,USA
+51,Miramar,FL,USA
+52,Gainesville,FL,USA
+53,Coral Springs,FL,USA
+54,Clearwater,FL,USA
+55,Palm Bay,FL,USA
+56,Pompano Beach,FL,USA
+57,Tallahassee,FL,USA
+58,West Palm Beach,FL,USA
+59,Lakeland,FL,USA
+60,Atlanta,GA,USA
+61,Augusta,GA,USA
+62,Columbus,GA,USA
+63,Savannah,GA,USA
+64,Macon,GA,USA
+65,Honolulu,HI,USA
+66,Boise,ID,USA
+67,Indianapolis,IN,USA
+68,Fort Wayne,IN,USA
+69,Evansville,IN,USA
+70,South Bend,IN,USA
+71,Des Moines,IA,USA
+72,Cedar Rapids,IA,USA
+73,Wichita,KS,USA
+74,Overland Park,KS,USA
+75,Louisville,KY,USA
+76,Lexington,KY,USA
+77,New Orleans,LA,USA
+78,Baton Rouge,LA,USA
+79,Shreveport,LA,USA
+80,Portland,ME,USA
+81,Baltimore,MD,USA
+82,Boston,MA,USA
+83,Worcester,MA,USA
+84,Springfield,MA,USA
+85,Detroit,MI,USA
+86,Grand Rapids,MI,USA
+87,Warren,MI,USA
+88,Sterling Heights,MI,USA
+89,Lansing,MI,USA
+90,Minneapolis,MN,USA
+91,Saint Paul,MN,USA
+92,Rochester,MN,USA
+93,Kansas City,MO,USA
+94,Saint Louis,MO,USA
+95,Springfield,MO,USA
+96,Columbia,MO,USA
+97,Billings,MT,USA
+98,Omaha,NE,USA
+99,Lincoln,NE,USA
+100,Las Vegas,NV,USA
+101,Henderson,NV,USA
+102,Reno,NV,USA
+103,Manchester,NH,USA
+104,Newark,NJ,USA
+105,Jersey City,NJ,USA
+106,Paterson,NJ,USA
+107,Albuquerque,NM,USA
+108,Las Cruces,NM,USA
+109,New York,NY,USA
+110,Brooklyn,NY,USA
+111,Queens,NY,USA
+112,Buffalo,NY,USA
+113,Rochester,NY,USA
+114,Yonkers,NY,USA
+115,Charlotte,NC,USA
+116,Raleigh,NC,USA
+117,Greensboro,NC,USA
+118,Durham,NC,USA
+119,Winston-Salem,NC,USA
+120,Fargo,ND,USA
+121,Oklahoma City,OK,USA
+122,Tulsa,OK,USA
+123,Portland,OR,USA
+124,Salem,OR,USA
+125,Eugene,OR,USA
+126,Philadelphia,PA,USA
+127,Pittsburgh,PA,USA
+128,Allentown,PA,USA
+129,Erie,PA,USA
+130,Providence,RI,USA
+131,Columbia,SC,USA
+132,Charleston,SC,USA
+133,Sioux Falls,SD,USA
+134,Memphis,TN,USA
+135,Nashville,TN,USA
+136,Knoxville,TN,USA
+137,Chattanooga,TN,USA
+138,Houston,TX,USA
+139,San Antonio,TX,USA
+140,Dallas,TX,USA
+141,Austin,TX,USA
+142,Fort Worth,TX,USA
+143,El Paso,TX,USA
+144,Arlington,TX,USA
+145,Corpus Christi,TX,USA
+146,Plano,TX,USA
+147,Lubbock,TX,USA
+148,Laredo,TX,USA
+149,Garland,TX,USA
+150,Irving,TX,USA
+151,Amarillo,TX,USA
+152,Grand Prairie,TX,USA
+153,McKinney,TX,USA
+154,Frisco,TX,USA
+155,Salt Lake City,UT,USA
+156,West Valley City,UT,USA
+157,Provo,UT,USA
+158,Burlington,VT,USA
+159,Virginia Beach,VA,USA
+160,Norfolk,VA,USA
+161,Chesapeake,VA,USA
+162,Richmond,VA,USA
+163,Newport News,VA,USA
+164,Seattle,WA,USA
+165,Spokane,WA,USA
+166,Tacoma,WA,USA
+167,Vancouver,WA,USA
+168,Bellevue,WA,USA
+169,Charleston,WV,USA
+170,Milwaukee,WI,USA
+171,Madison,WI,USA
+172,Green Bay,WI,USA
+173,Cheyenne,WY,USA

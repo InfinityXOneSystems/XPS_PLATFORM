@@ -1,0 +1,69 @@
+[
+  {
+    "run_date": "2026-03-10T19:07:21.498324+00:00",
+    "elapsed_sec": 2.04,
+    "targets": 8,
+    "raw": 56,
+    "valid": 56,
+    "hot": 56,
+    "warm": 0,
+    "cold": 0,
+    "github": {
+      "success": false,
+      "files_pushed": 0,
+      "total": 5,
+      "details": {
+        "leads/leads_2026-03-10.json": {
+          "ok": false,
+          "error": "HTTP Error 403: Forbidden"
+        },
+        "leads/leads_2026-03-10.csv": {
+          "ok": false,
+          "error": "HTTP Error 403: Forbidden"
+        },
+        "reports/report_2026-03-10.html": {
+          "ok": false,
+          "error": "HTTP Error 403: Forbidden"
+        },
+        "leads/latest.json": {
+          "ok": false,
+          "error": "HTTP Error 403: Forbidden"
+        },
+        "leads/latest.csv": {
+          "ok": false,
+          "error": "HTTP Error 403: Forbidden"
+        }
+      }
+    },
+    "email": {
+      "success": false,
+      "reason": "GMAIL_APP_PASSWORD not configured"
+    },
+    "crm": {
+      "added": 49,
+      "total_crm": 56
+    }
+  },
+  {
+    "run_date": "2026-03-11T20:38:11.844555+00:00",
+    "elapsed_sec": 0.85,
+    "targets": 8,
+    "raw": 56,
+    "valid": 56,
+    "hot": 56,
+    "warm": 0,
+    "cold": 0,
+    "github": {
+      "success": false,
+      "reason": "GITHUB_TOKEN not set"
+    },
+    "email": {
+      "success": false,
+      "reason": "GMAIL_APP_PASSWORD not configured"
+    },
+    "crm": {
+      "added": 0,
+      "total_crm": 56
+    }
+  }
+]

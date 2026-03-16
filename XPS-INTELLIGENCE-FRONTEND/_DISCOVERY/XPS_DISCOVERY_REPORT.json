@@ -1,0 +1,232 @@
+[
+    {
+        "Component":  "Frontend Root",
+        "Status":  "OK",
+        "Details":  "C:\\XPS_PLATFORM\\XPS-INTELLIGENCE-FRONTEND"
+    },
+    {
+        "Component":  "Backend Root",
+        "Status":  "OK",
+        "Details":  "C:\\XPS_INTELLIGENCE_SYSTEM"
+    },
+    {
+        "Component":  "NodeJS",
+        "Status":  "OK",
+        "Details":  "v24.14.0"
+    },
+    {
+        "Component":  "NPM",
+        "Status":  "OK",
+        "Details":  "11.9.0"
+    },
+    {
+        "Component":  "Docker Engine",
+        "Status":  "OK",
+        "Details":  "29.2.0"
+    },
+    {
+        "Component":  "Docker Containers",
+        "Status":  "WARN",
+        "Details":  "No running containers"
+    },
+    {
+        "Component":  "Docker Images",
+        "Status":  "OK",
+        "Details":  "xps_platform-frontend:latest, xps_platform-backend:latest, node:20, python:3.11, ollama/ollama:latest, redis:latest, qdrant/qdrant:latest, n8nio/n8n:latest, ngrok/ngrok-docker-extension:1.0.0"
+    },
+    {
+        "Component":  "Port 3000",
+        "Status":  "CLOSED",
+        "Details":  "No listener"
+    },
+    {
+        "Component":  "Port 4000",
+        "Status":  "CLOSED",
+        "Details":  "No listener"
+    },
+    {
+        "Component":  "Port 5000",
+        "Status":  "OPEN",
+        "Details":  "Listening"
+    },
+    {
+        "Component":  "Port 5432",
+        "Status":  "CLOSED",
+        "Details":  "No listener"
+    },
+    {
+        "Component":  "Port 6379",
+        "Status":  "CLOSED",
+        "Details":  "No listener"
+    },
+    {
+        "Component":  "Port 8080",
+        "Status":  "CLOSED",
+        "Details":  "No listener"
+    },
+    {
+        "Component":  "Frontend package.json",
+        "Status":  "OK",
+        "Details":  "Found"
+    },
+    {
+        "Component":  "Frontend Framework",
+        "Status":  "OK",
+        "Details":  "Vite detected"
+    },
+    {
+        "Component":  "Vite Config",
+        "Status":  "OK",
+        "Details":  "Present"
+    },
+    {
+        "Component":  "Next Config",
+        "Status":  "WARN",
+        "Details":  "Not found"
+    },
+    {
+        "Component":  "Frontend src/",
+        "Status":  "OK",
+        "Details":  "Present"
+    },
+    {
+        "Component":  "Frontend app/",
+        "Status":  "WARN",
+        "Details":  "Missing"
+    },
+    {
+        "Component":  "Frontend pages/",
+        "Status":  "OK",
+        "Details":  "Present"
+    },
+    {
+        "Component":  "Frontend UI Live",
+        "Status":  "OK",
+        "Details":  "http://localhost:5000 responded with 200"
+    },
+    {
+        "Component":  "API http://localhost:5000/api/chat",
+        "Status":  "OK",
+        "Details":  "HTTP 200"
+    },
+    {
+        "Component":  "API http://localhost:5000/api/scrape",
+        "Status":  "OK",
+        "Details":  "HTTP 200"
+    },
+    {
+        "Component":  "API http://localhost:5000/api/run-agent",
+        "Status":  "OK",
+        "Details":  "HTTP 200"
+    },
+    {
+        "Component":  "API http://localhost:5000/api/logs",
+        "Status":  "OK",
+        "Details":  "HTTP 200"
+    },
+    {
+        "Component":  "API http://localhost:3000/api/chat",
+        "Status":  "FAIL",
+        "Details":  "No response"
+    },
+    {
+        "Component":  "API http://localhost:3000/api/scrape",
+        "Status":  "FAIL",
+        "Details":  "No response"
+    },
+    {
+        "Component":  ".env.local",
+        "Status":  "OK",
+        "Details":  "Found"
+    },
+    {
+        "Component":  "Groq API Key",
+        "Status":  "OK",
+        "Details":  "AI_GROQ_API_KEY present"
+    },
+    {
+        "Component":  "Postgres ENV",
+        "Status":  "OK",
+        "Details":  "XPS_PGHOST present"
+    },
+    {
+        "Component":  "GitHub Token ENV",
+        "Status":  "WARN",
+        "Details":  "GITHUB_TOKEN not found in .env.local"
+    },
+    {
+        "Component":  "node_modules",
+        "Status":  "OK",
+        "Details":  "Present"
+    },
+    {
+        "Component":  "Package groq-sdk",
+        "Status":  "OK",
+        "Details":  "Installed"
+    },
+    {
+        "Component":  "Package playwright",
+        "Status":  "WARN",
+        "Details":  "Not found"
+    },
+    {
+        "Component":  "Package pg",
+        "Status":  "OK",
+        "Details":  "Installed"
+    },
+    {
+        "Component":  "Package axios",
+        "Status":  "WARN",
+        "Details":  "Not found"
+    },
+    {
+        "Component":  "Agents Folder",
+        "Status":  "FAIL",
+        "Details":  "Missing"
+    },
+    {
+        "Component":  "lib Folder",
+        "Status":  "WARN",
+        "Details":  "Missing"
+    },
+    {
+        "Component":  "pages/api",
+        "Status":  "OK",
+        "Details":  "chat.js, groq-test.js"
+    },
+    {
+        "Component":  "app/api",
+        "Status":  "WARN",
+        "Details":  "Missing"
+    },
+    {
+        "Component":  "Backend Workflows",
+        "Status":  "OK",
+        "Details":  "lead_scraper.yml, national_discovery.yml, system_validation.yml"
+    },
+    {
+        "Component":  "GitHub CLI",
+        "Status":  "OK",
+        "Details":  "Authenticated"
+    },
+    {
+        "Component":  "Compose File",
+        "Status":  "WARN",
+        "Details":  "No docker-compose.yml / compose.yml found"
+    },
+    {
+        "Component":  "System Readiness",
+        "Status":  "PARTIAL",
+        "Details":  "Frontend and core env exist; API/autonomy still need validation"
+    },
+    {
+        "Component":  "Frontend/Backend Wiring",
+        "Status":  "OK",
+        "Details":  "At least one API endpoint responded"
+    },
+    {
+        "Component":  "Autonomous Agent Files",
+        "Status":  "FAIL",
+        "Details":  "No agent implementation found"
+    }
+]

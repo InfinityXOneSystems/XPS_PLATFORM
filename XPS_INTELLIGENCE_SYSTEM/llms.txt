@@ -1,0 +1,85 @@
+# LEAD_GEN_INTELLIGENCE — Autonomous Lead Intelligence Platform
+> Repository: https://github.com/InfinityXOneSystems/LEAD_GEN_INTELLIGENCE
+> Owner: InfinityXOneSystems
+> License: ISC
+
+## What This Project Does
+LEAD_GEN_INTELLIGENCE is a fully autonomous, open-source lead intelligence platform for the
+flooring and construction industries. It discovers contractor leads, validates & enriches contact
+data, scores prospects, automates outreach, and surfaces everything in a real-time Next.js dashboard.
+
+## Key Capabilities
+- **Scraping**: Google Maps, Bing Maps, Yelp, contractor directories, social media (LinkedIn, X/Twitter, Facebook, Instagram)
+- **Validation**: deduplication, phone/website reachability checks, scoring (0–100 scale)
+- **Enrichment**: email discovery, LinkedIn profiles, additional contact details
+- **Lead Scoring**: weighted rules engine (website +10, email +15, phone +10, reviews>10 +5, rating>4 +10)
+- **Outreach**: Nodemailer automated email, follow-up scheduler, campaign management
+- **Dashboard**: Next.js PWA, pure-black + electric-gold theme, collapsible sidebar, analytics, AI command chat panel
+- **Headless REST API Agent**: Playwright-powered browser automation with form fill, scroll, type, click, screenshot, page navigation, parallel instances, and sandbox isolation
+- **Social Media Scraping**: LinkedIn, Twitter/X, Facebook, Instagram company & business page scraping
+- **Autonomous Pipeline**: GitHub Actions every 4 hours — Scrape → Validate → Enrich → Score → Store → Deploy
+
+## Technology Stack
+- **Backend**: Node.js, Express, Crawlee, Playwright, Selenium WebDriver, Steel SDK
+- **AI / Automation**: GitHub Copilot Agents, GitHub Actions, GPT Actions (OpenAPI 3.1)
+- **Queue**: BullMQ-compatible task queue (scraper_queue.js)
+- **Database**: PostgreSQL (pg), SQLite (better-sqlite3)
+- **Frontend**: Next.js 14, Tailwind CSS, PWA, Service Workers
+- **Python**: asyncio, selenium, pyppeteer for parallel headless automation
+
+## File Map
+- `agents/headless/` — Headless REST API agent (Playwright + asyncio parallel instances)
+- `agents/orchestrator/` — System orchestrator + Infinity Orchestrator GitHub App handler
+- `agents/scoring/` — Lead scoring engine
+- `agents/outreach/` — Email outreach automation
+- `scrapers/` — All scraper implementations (Google Maps, Bing, social media)
+- `scrapers/social/` — Social media scrapers (LinkedIn, Twitter/X, Facebook, Instagram)
+- `sandbox/` — Sandboxed execution environment for headless agent
+- `validation/` — Lead validation pipeline
+- `dashboard/` — Next.js PWA dashboard (app router)
+- `pages/` — Static GitHub Pages dashboard
+- `agents/gpt_actions/` — OpenAPI 3.1 spec + Express server for GPT Actions
+- `.github/workflows/` — All CI/CD automation workflows
+- `.github/app/` — GitHub App manifest (Infinity Orchestrator)
+- `db/` — Database schema and lead store
+- `outreach/` — Outreach engine, follow-up scheduler, templates
+
+## API Endpoints (GPT Actions server on port 3100)
+- GET  /status          — System health
+- GET  /leads           — List leads (filterable)
+- POST /scrape          — Trigger scraping job
+- POST /validate        — Run validation pipeline
+- POST /score           — Run scoring pipeline
+- POST /outreach        — Send outreach emails
+- GET  /analytics       — Lead analytics summary
+
+## Headless Agent API (port 3200)
+- POST /agent/session/create   — Create browser session
+- POST /agent/fill             — Fill a form field
+- POST /agent/click            — Click an element
+- POST /agent/type             — Type text
+- POST /agent/scroll           — Scroll the page
+- POST /agent/screenshot       — Capture screenshot
+- POST /agent/navigate         — Navigate to URL
+- DELETE /agent/session/:id    — Close session
+- GET  /agent/sessions         — List active sessions
+
+## Social Media Scrapers
+- `scrapers/social/linkedin_scraper.js` — Company pages, employee listings
+- `scrapers/social/twitter_scraper.js` — Business profiles, posts
+- `scrapers/social/facebook_scraper.js` — Business pages, contact info
+- `scrapers/social/instagram_scraper.js` — Business accounts, contact info
+- `scrapers/social/social_scraper_engine.js` — Orchestrates all social scrapers
+
+## Running the Platform
+```
+npm run pipeline          # score + export
+npm run generate-city-leads
+npm run gpt-actions       # GPT Actions API server
+node agents/headless/headless_agent.js   # Headless REST API (port 3200)
+node scrapers/social/social_scraper_engine.js
+```
+
+## Sitemap
+- https://infinityxonesystems.github.io/LEAD_GEN_INTELLIGENCE/
+- https://infinityxonesystems.github.io/LEAD_GEN_INTELLIGENCE/leads

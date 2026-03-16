@@ -1,0 +1,112 @@
+{
+  "generated_at": "2026-03-08T22:38:04.364Z",
+  "status": {
+    "active": true,
+    "last_run": "2026-03-08T22:38:04.364Z",
+    "sources": {
+      "google_maps": {
+        "status": "ok",
+        "leads": 2658
+      },
+      "scoring_engine": {
+        "status": "ok",
+        "scored": 2658
+      }
+    }
+  },
+  "briefing": {
+    "date": "2026-03-08",
+    "summary": "Lead intelligence report: 2658 total leads discovered across 6 industries. 25 HOT opportunities identified.",
+    "top_opportunities": [
+      {
+        "title": "Desert Epoxy Solutions \u2014 Epoxy",
+        "city": "Tempe",
+        "score": 95,
+        "tier": "HOT",
+        "action": "Contact via email or phone for epoxy flooring lead conversion"
+      },
+      {
+        "title": "Valley Metallic Epoxy Specialists \u2014 Epoxy",
+        "city": "Tempe",
+        "score": 95,
+        "tier": "HOT",
+        "action": "Contact via email or phone for epoxy flooring lead conversion"
+      },
+      {
+        "title": "Columbus Epoxy Flooring Co. \u2014 Epoxy",
+        "city": "Columbus",
+        "score": 95,
+        "tier": "HOT",
+        "action": "Contact via email or phone for epoxy flooring lead conversion"
+      },
+      {
+        "title": "Rockford Epoxy Pros \u2014 Epoxy",
+        "city": "Rockford",
+        "score": 90,
+        "tier": "HOT",
+        "action": "Contact via email or phone for epoxy flooring lead conversion"
+      },
+      {
+        "title": "Illini Polyaspartic Floors \u2014 Epoxy",
+        "city": "Rockford",
+        "score": 90,
+        "tier": "HOT",
+        "action": "Contact via email or phone for epoxy flooring lead conversion"
+      }
+    ],
+    "market_signals": [
+      {
+        "signal": "Epoxy Flooring",
+        "direction": "up",
+        "note": "577 leads found"
+      },
+      {
+        "signal": "Concrete Coatings",
+        "direction": "up",
+        "note": "511 leads found"
+      },
+      {
+        "signal": "Automotive Coatings",
+        "direction": "up",
+        "note": "386 leads found"
+      },
+      {
+        "signal": "Industrial Flooring",
+        "direction": "flat",
+        "note": "301 leads found"
+      }
+    ]
+  },
+  "niches": [
+    {
+      "name": "Epoxy",
+      "lead_count": 577,
+      "growth": "up",
+      "avg_score": 34
+    },
+    {
+      "name": "Concrete",
+      "lead_count": 511,
+      "growth": "up",
+      "avg_score": 34
+    },
+    {
+      "name": "Automotive",
+      "lead_count": 386,
+      "growth": "flat",
+      "avg_score": 34
+    },
+    {
+      "name": "Industrial",
+      "lead_count": 301,
+      "growth": "flat",
+      "avg_score": 34
+    },
+    {
+      "name": "SurfacePrep",
+      "lead_count": 4,
+      "growth": "flat",
+      "avg_score": 34
+    }
+  ]
+}

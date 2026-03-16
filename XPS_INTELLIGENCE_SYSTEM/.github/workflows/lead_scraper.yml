@@ -1,0 +1,95 @@
+name: Nationwide Lead Scraper
+
+# GOVERNANCE: Tier 3 — Async Intelligence (canonical scraper)
+# This is the single scheduled scraper. Reduced from every 2h to daily 06:00 UTC.
+# scrape-schedule.yml has been archived to .infinity/deprecated_workflows/.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  schedule:
+    # Run once daily at 06:00 UTC (reduced from every 2h — was causing run explosion)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: 'Number of cities to process in this run'
+        required: false
+        default: '10'
+      state_filter:
+        description: 'Restrict run to a single US state (e.g. TX). Leave blank for all.'
+        required: false
+        default: ''
+      reset_progress:
+        description: 'Reset scraping progress before running (1 = yes)'
+        required: false
+        default: '0'
+
+# Prevent concurrent runs so progress tracking stays consistent.
+concurrency:
+  group: lead-scraper
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run nationwide scraper
+        env:
+          SCRAPER_BATCH_SIZE:    ${{ github.event.inputs.batch_size    || '10' }}
+          SCRAPER_CONCURRENCY:   '1'
+          SCRAPER_RATE_LIMIT_MS: '3000'
+          SCRAPER_STATE:         ${{ github.event.inputs.state_filter  || '' }}
+          SCRAPER_RESET:         ${{ github.event.inputs.reset_progress || '0' }}
+        run: |
+          node -e "
+            require('dotenv').config();
+            const { runEngine } = require('./scrapers/engine');
+            const batchSize = parseInt(process.env.SCRAPER_BATCH_SIZE || '10', 10);
+            runEngine({
+              sources: ['bing_maps'],
+              maxKeywords: 3,
+              maxLocations: batchSize,
+              concurrency: parseInt(process.env.SCRAPER_CONCURRENCY || '1', 10),
+              delayBetweenBatchesMs: parseInt(process.env.SCRAPER_RATE_LIMIT_MS || '3000', 10)
+            })
+              .then(leads => { console.log('[scraper] Collected leads:', leads.length); process.exit(0); })
+              .catch(err  => { console.error('[scraper] Error:', err.message); process.exit(0); });
+          "
+
+      - name: Commit scraped leads
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/leads/leads.json data/scraper_progress.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No new leads or progress changes to commit."
+          else
+            git commit -m "chore: update scraped leads [skip ci]"
+            for attempt in 1 2 3; do
+              git push && break || {
+                echo "Push attempt $attempt failed — syncing remote changes..."
+                git fetch origin main
+                git merge -X ours --no-edit origin/main 2>/dev/null || true
+                sleep $((attempt * 5))
+              }
+            done
+          fi

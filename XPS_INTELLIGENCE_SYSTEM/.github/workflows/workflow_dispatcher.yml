@@ -1,0 +1,369 @@
+# .github/workflows/workflow_dispatcher.yml
+# ============================================================
+# TIER 0: Central Workflow Dispatcher — Governance Guardian
+# ============================================================
+# Single source of truth for controlled workflow dispatch.
+# All tier-based workflows are invoked from here via workflow_dispatch.
+# This prevents cascade triggers and uncontrolled scheduling.
+#
+# Triggers:
+#   - push to main (validates + dispatches quality gates)
+#   - pull_request sync (dispatches CI gates)
+#   - workflow_dispatch (manual full/selective dispatch)
+#   - schedule: nightly governance run
+#
+# Architecture: See .infinity/WORKFLOW_GOVERNANCE.md
+
+name: 🎯 Workflow Dispatcher (Tier 0 Guardian)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: "Dispatch tier (all | tier1 | tier2 | tier3 | tier4)"
+        required: false
+        default: "tier1"
+        type: choice
+        options:
+          - all
+          - tier1
+          - tier2
+          - tier3
+          - tier4
+      dry_run:
+        description: "Dry run — log dispatch plan without triggering workflows"
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    # Nightly governance check at 03:00 UTC — dispatches only if drift detected
+    - cron: "0 3 * * *"
+
+concurrency:
+  group: workflow-dispatcher-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+  id-token: write   # required for GitHub App OIDC
+
+env:
+  DISPATCHER_VERSION: "1.0.0"
+  DRY_RUN: ${{ inputs.dry_run || 'false' }}
+
+jobs:
+  # ── Pre-flight validation ─────────────────────────────────────────────────
+  validate:
+    name: Pre-flight Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.ctx.outputs.sha }}
+      branch: ${{ steps.ctx.outputs.branch }}
+      event: ${{ steps.ctx.outputs.event }}
+      tier: ${{ steps.ctx.outputs.tier }}
+      dispatch_tier1: ${{ steps.plan.outputs.dispatch_tier1 }}
+      dispatch_tier2: ${{ steps.plan.outputs.dispatch_tier2 }}
+      dispatch_tier3: ${{ steps.plan.outputs.dispatch_tier3 }}
+      dispatch_tier4: ${{ steps.plan.outputs.dispatch_tier4 }}
+      app_token: ${{ steps.app-token.outputs.token }}
+
+    steps:
+      # ── Mint Infinity Orchestrator App token ───────────────────────────────
+      - name: Generate Infinity Orchestrator App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: "2494652"  # Infinity Orchestrator App (hardcoded; only private key secret needed)
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          repositories: >-
+            XPS_INTELLIGENCE_SYSTEM,
+            LEADS,
+            XPS-INTELLIGENCE-FRONTEND
+        continue-on-error: true   # graceful fallback if App not configured
+      - name: Collect context
+        id: ctx
+        run: |
+          SHA="${{ github.sha }}"
+          BRANCH="${{ github.ref_name }}"
+          EVENT="${{ github.event_name }}"
+          TIER="${{ inputs.tier || 'tier1' }}"
+          echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "event=${EVENT}" >> $GITHUB_OUTPUT
+          echo "tier=${TIER}" >> $GITHUB_OUTPUT
+          echo "::notice title=Dispatcher::SHA=${SHA} BRANCH=${BRANCH} EVENT=${EVENT} TIER=${TIER}"
+
+      - name: Build dispatch plan
+        id: plan
+        run: |
+          EVENT="${{ github.event_name }}"
+          TIER="${{ inputs.tier || 'tier1' }}"
+
+          # Always dispatch tier1 on push/PR
+          if [[ "$EVENT" == "push" || "$EVENT" == "pull_request" ]]; then
+            echo "dispatch_tier1=true"  >> $GITHUB_OUTPUT
+            echo "dispatch_tier2=false" >> $GITHUB_OUTPUT
+            echo "dispatch_tier3=false" >> $GITHUB_OUTPUT
+            echo "dispatch_tier4=false" >> $GITHUB_OUTPUT
+          elif [[ "$EVENT" == "schedule" ]]; then
+            echo "dispatch_tier1=false" >> $GITHUB_OUTPUT
+            echo "dispatch_tier2=false" >> $GITHUB_OUTPUT
+            echo "dispatch_tier3=false" >> $GITHUB_OUTPUT
+            echo "dispatch_tier4=true"  >> $GITHUB_OUTPUT
+          else
+            # Manual dispatch — respect tier selection
+            echo "dispatch_tier1=$([ "$TIER" == 'all' ] || [ "$TIER" == 'tier1' ] && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "dispatch_tier2=$([ "$TIER" == 'all' ] || [ "$TIER" == 'tier2' ] && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "dispatch_tier3=$([ "$TIER" == 'all' ] || [ "$TIER" == 'tier3' ] && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "dispatch_tier4=$([ "$TIER" == 'all' ] || [ "$TIER" == 'tier4' ] && echo true || echo false)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Log dispatch plan
+        run: |
+          echo "## Dispatch Plan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Event | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SHA | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dry Run | ${{ env.DRY_RUN }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tier | ${{ inputs.tier || 'auto' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dispatcher Version | ${{ env.DISPATCHER_VERSION }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ── Tier 1: Quality Gates ─────────────────────────────────────────────────
+  dispatch-tier1:
+    name: Dispatch — Tier 1 (Quality Gates)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: validate
+    if: needs.validate.outputs.dispatch_tier1 == 'true'
+
+    steps:
+      - name: Dispatch ci.yml
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ needs.validate.outputs.app_token || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              workflow_id: 'ci.yml',
+              ref: "${{ github.head_ref || github.ref_name || 'main' }}",
+            });
+            console.log('Dispatched ci.yml');
+
+      - name: Dispatch code_quality.yml
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ needs.validate.outputs.app_token || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              workflow_id: 'code_quality.yml',
+              ref: "${{ github.head_ref || github.ref_name || 'main' }}",
+            });
+            console.log('Dispatched code_quality.yml');
+
+      - name: Dispatch system_validation.yml
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ needs.validate.outputs.app_token || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              workflow_id: 'system_validation.yml',
+              ref: "${{ github.head_ref || github.ref_name || 'main' }}",
+            });
+            console.log('Dispatched system_validation.yml');
+
+      - name: Dry run summary
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "### [DRY RUN] Tier 1 dispatch plan" >> $GITHUB_STEP_SUMMARY
+          echo "Would dispatch: ci.yml, code_quality.yml, system_validation.yml" >> $GITHUB_STEP_SUMMARY
+
+  # ── Tier 2: Deployment (main branch only) ─────────────────────────────────
+  dispatch-tier2:
+    name: Dispatch — Tier 2 (Deployment)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: validate
+    if: needs.validate.outputs.dispatch_tier2 == 'true' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Dispatch deploy-backend.yml
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ needs.validate.outputs.app_token || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              workflow_id: 'deploy-backend.yml',
+              ref: 'main',
+            });
+            console.log('Dispatched deploy-backend.yml');
+
+      - name: Dispatch nextjs.yml (dashboard changes only)
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ needs.validate.outputs.app_token || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              workflow_id: 'nextjs.yml',
+              ref: 'main',
+            });
+            console.log('Dispatched nextjs.yml');
+
+      - name: Dry run summary
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "### [DRY RUN] Tier 2 dispatch plan" >> $GITHUB_STEP_SUMMARY
+          echo "Would dispatch: deploy-backend.yml, nextjs.yml" >> $GITHUB_STEP_SUMMARY
+
+  # ── Tier 3: Async Intelligence (dispatch-only) ────────────────────────────
+  dispatch-tier3:
+    name: Dispatch — Tier 3 (Async Intelligence)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: validate
+    if: needs.validate.outputs.dispatch_tier3 == 'true'
+
+    steps:
+      - name: Dispatch lead_scraper.yml
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ needs.validate.outputs.app_token || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              workflow_id: 'lead_scraper.yml',
+              ref: 'main',
+            });
+            console.log('Dispatched lead_scraper.yml');
+
+      - name: Dispatch lead_validation.yml
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ needs.validate.outputs.app_token || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              workflow_id: 'lead_validation.yml',
+              ref: 'main',
+            });
+            console.log('Dispatched lead_validation.yml');
+
+      - name: Dispatch enterprise_lead_pipeline.yml
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ needs.validate.outputs.app_token || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              workflow_id: 'enterprise_lead_pipeline.yml',
+              ref: 'main',
+            });
+            console.log('Dispatched enterprise_lead_pipeline.yml');
+
+      - name: Dry run summary
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "### [DRY RUN] Tier 3 dispatch plan" >> $GITHUB_STEP_SUMMARY
+          echo "Would dispatch: lead_scraper.yml, lead_validation.yml, enterprise_lead_pipeline.yml" >> $GITHUB_STEP_SUMMARY
+
+  # ── Tier 4: Self-Healing (nightly schedule only) ──────────────────────────
+  dispatch-tier4:
+    name: Dispatch — Tier 4 (Self-Healing)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: validate
+    if: needs.validate.outputs.dispatch_tier4 == 'true'
+
+    steps:
+      - name: Dispatch docs_reflection.yml
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ needs.validate.outputs.app_token || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              workflow_id: 'docs_reflection.yml',
+              ref: 'main',
+            });
+            console.log('Dispatched docs_reflection.yml');
+
+      - name: Dispatch repo_guardian.yml
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ needs.validate.outputs.app_token || secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              workflow_id: 'repo_guardian.yml',
+              ref: 'main',
+            });
+            console.log('Dispatched repo_guardian.yml');
+
+      - name: Dry run summary
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "### [DRY RUN] Tier 4 dispatch plan" >> $GITHUB_STEP_SUMMARY
+          echo "Would dispatch: docs_reflection.yml, repo_guardian.yml" >> $GITHUB_STEP_SUMMARY
+
+  # ── Final telemetry summary ───────────────────────────────────────────────
+  telemetry:
+    name: Dispatch Telemetry
+    runs-on: ubuntu-latest
+    needs: [validate, dispatch-tier1, dispatch-tier2, dispatch-tier3, dispatch-tier4]
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+      - name: Summarize dispatch results
+        run: |
+          echo "## 🎯 Dispatcher Telemetry" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| validate | ${{ needs.validate.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| dispatch-tier1 | ${{ needs.dispatch-tier1.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| dispatch-tier2 | ${{ needs.dispatch-tier2.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| dispatch-tier3 | ${{ needs.dispatch-tier3.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| dispatch-tier4 | ${{ needs.dispatch-tier4.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          # Show auth method
+          if [ -n "${{ needs.validate.outputs.app_token }}" ]; then
+            echo "🔐 **Auth**: Infinity Orchestrator GitHub App token" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ **Auth**: GITHUB_TOKEN fallback (add GH_APP_PRIVATE_KEY secret for Infinity Orchestrator full access)" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Dispatcher v${{ env.DISPATCHER_VERSION }} — $(date -u +%Y-%m-%dT%H:%M:%SZ)_" >> $GITHUB_STEP_SUMMARY

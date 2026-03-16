@@ -1,0 +1,492 @@
+openapi: 3.1.0
+info:
+  title: XPS Intelligence API
+  description: Backend API contract for XPS Intelligence autonomous AI platform
+  version: 1.0.0
+  contact:
+    name: InfinityXOne Systems
+    url: https://github.com/InfinityXOneSystems
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+  - url: https://api.xps-intelligence.com/api
+    description: Production
+
+tags:
+  - name: leads
+    description: Lead management
+  - name: scraper
+    description: Web scraper control
+  - name: agent
+    description: Agent orchestration
+  - name: tools
+    description: Tool registry
+
+paths:
+  /leads:
+    get:
+      tags: [leads]
+      summary: List all leads
+      responses:
+        '200':
+          description: Array of leads
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Lead'
+    post:
+      tags: [leads]
+      summary: Create a lead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeadCreate'
+      responses:
+        '201':
+          description: Created lead
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+
+  /leads/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [leads]
+      summary: Get a lead by ID
+      responses:
+        '200':
+          description: Lead
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+        '404':
+          description: Not found
+    put:
+      tags: [leads]
+      summary: Update a lead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeadCreate'
+      responses:
+        '200':
+          description: Updated lead
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+    delete:
+      tags: [leads]
+      summary: Delete a lead
+      responses:
+        '204':
+          description: Deleted
+
+  /leads/metrics:
+    get:
+      tags: [leads]
+      summary: Get dashboard metrics
+      responses:
+        '200':
+          description: Dashboard metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardMetrics'
+
+  /leads/{id}/assign:
+    post:
+      tags: [leads]
+      summary: Assign lead to rep
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                repId:
+                  type: string
+                repName:
+                  type: string
+                repInitials:
+                  type: string
+      responses:
+        '200':
+          description: Updated lead
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lead'
+
+  /scraper/run:
+    post:
+      tags: [scraper]
+      summary: Start a scraper job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScraperConfig'
+      responses:
+        '200':
+          description: Job started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+
+  /scraper/status/{jobId}:
+    get:
+      tags: [scraper]
+      summary: Get scraper job status
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScraperLog'
+
+  /scraper/logs:
+    get:
+      tags: [scraper]
+      summary: Get scraper logs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Scraper logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ScraperLog'
+
+  /scraper/results:
+    post:
+      tags: [scraper]
+      summary: Ingest scraper results from worker (GitHub Actions)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_id:
+                  type: string
+                city:
+                  type: string
+                category:
+                  type: string
+                count:
+                  type: integer
+                results:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/ScrapedLead'
+      responses:
+        '200':
+          description: Results ingested
+
+  /agent/plans:
+    get:
+      tags: [agent]
+      summary: Get agent plan history
+      responses:
+        '200':
+          description: Plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentPlan'
+    post:
+      tags: [agent]
+      summary: Create and execute an agent plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                command:
+                  type: string
+                  example: 'scrape epoxy companies Orlando'
+      responses:
+        '200':
+          description: Created plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPlan'
+
+  /agent/plans/{id}:
+    get:
+      tags: [agent]
+      summary: Get a specific agent plan
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Agent plan
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentPlan'
+
+  /tools:
+    get:
+      tags: [tools]
+      summary: Get tool registry
+      responses:
+        '200':
+          description: Tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tool'
+
+components:
+  schemas:
+    Lead:
+      type: object
+      required: [id, company, city, phone, email, rating, opportunityScore, status, createdAt]
+      properties:
+        id:
+          type: string
+        company:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        website:
+          type: string
+        rating:
+          type: string
+          enum: ['A+', 'A', 'B+', 'B', 'C', 'D']
+        opportunityScore:
+          type: number
+        assignedRep:
+          type: string
+        assignedInitials:
+          type: string
+        status:
+          type: string
+          enum: [new, contacted, qualified, proposal, signed, lost]
+        priority:
+          type: string
+          enum: [green, yellow, red]
+        isNew:
+          type: boolean
+        notes:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        category:
+          type: string
+        address:
+          type: string
+        revenue:
+          type: number
+        lat:
+          type: number
+        lng:
+          type: number
+
+    LeadCreate:
+      allOf:
+        - $ref: '#/components/schemas/Lead'
+        - type: object
+          required: [company, city, phone, email, rating, opportunityScore, status]
+
+    ScrapedLead:
+      type: object
+      properties:
+        company:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        website:
+          type: string
+        industry:
+          type: string
+        location:
+          type: string
+        lead_score:
+          type: number
+
+    DashboardMetrics:
+      type: object
+      properties:
+        totalLeads:
+          type: integer
+        aPlusOpportunities:
+          type: integer
+        emailsSent:
+          type: integer
+        responseRate:
+          type: number
+        revenuePipeline:
+          type: number
+
+    ScraperConfig:
+      type: object
+      required: [city, category, maxResults, sources]
+      properties:
+        city:
+          type: string
+        category:
+          type: string
+        maxResults:
+          type: integer
+        sources:
+          type: object
+          properties:
+            googleMaps:
+              type: boolean
+            yelp:
+              type: boolean
+            directories:
+              type: boolean
+
+    ScraperLog:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [running, completed, failed]
+        message:
+          type: string
+        config:
+          $ref: '#/components/schemas/ScraperConfig'
+
+    AgentTask:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [scrape, generate_email, analyze_leads, deploy, build_ui, search, report, github_action]
+        description:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed]
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        result:
+          type: string
+        error:
+          type: string
+
+    AgentPlan:
+      type: object
+      properties:
+        id:
+          type: string
+        userCommand:
+          type: string
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentTask'
+        createdAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, running, completed, failed, partial]
+
+    Tool:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+          enum: [browser, crawler, github, system, data, deployment, communication]
+        enabled:
+          type: boolean
+        configurable:
+          type: boolean
+        config:
+          type: object
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - bearerAuth: []

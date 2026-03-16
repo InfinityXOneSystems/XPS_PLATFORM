@@ -1,0 +1,38 @@
+name: Scheduled Scrape
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # Daily at 6am UTC
+  workflow_dispatch:
+    inputs:
+      query:
+        description: "Search query (e.g. epoxy contractors)"
+        required: false
+        default: "contractors"
+      state:
+        description: "US state to scrape"
+        required: false
+        default: "all"
+
+jobs:
+  trigger-scrape:
+    name: Trigger Scraper Agent
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Trigger scrape via API
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          API_SECRET: ${{ secrets.API_SECRET }}
+        run: |
+          QUERY="${{ github.event.inputs.query || 'contractors' }}"
+          STATE="${{ github.event.inputs.state || 'all' }}"
+
+          curl -X POST "${API_URL}/api/v1/scrapers/jobs" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${API_SECRET}" \
+            -d "{\"query\": \"${QUERY}\", \"state\": \"${STATE}\", \"trigger\": \"scheduled\"}" \
+            --fail || echo "API call failed - server may be down"
+
+      - name: Wait and check status
+        run: sleep 10 && echo "Scrape job triggered successfully"

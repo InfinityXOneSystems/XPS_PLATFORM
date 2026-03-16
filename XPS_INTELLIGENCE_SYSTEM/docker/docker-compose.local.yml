@@ -1,0 +1,121 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# XPS Intelligence Platform — Docker Desktop Local Override
+#
+# Local folder layout (Windows):
+#   C:\XPS_PLATFORM\XPS_INTELLIGENCE_SYSTEM   → backend + orchestrator
+#   C:\XPS_PLATFORM\XPS-INTELLIGENCE-FRONTEND → Vite/React frontend
+#   C:\XPS_PLATFORM\LEADS                     → Lead archive (synced from Supabase)
+#
+# Usage (from C:\XPS_PLATFORM\XPS_INTELLIGENCE_SYSTEM):
+#   docker compose -f docker-compose.yml -f docker/docker-compose.local.yml up -d
+#
+# Or set COMPOSE_FILE env var:
+#   $env:COMPOSE_FILE = "docker-compose.yml;docker/docker-compose.local.yml"
+#   docker compose up -d
+#
+# This override:
+#   1. Mounts local source code into containers (hot reload)
+#   2. Configures Supabase connection (NEXT_PUBLIC_SUPABASE_URL)
+#   3. Disables PostgreSQL (leads route to Supabase, not local PG)
+#   4. Adds playwright-scraper service for local browser automation
+#   5. Mounts LEADS repo folder for local lead inspection
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Backend (FastAPI) — live mount for hot reload ────────────────────────
+  backend:
+    volumes:
+      # Mount backend source for live code changes.
+      # XPS_BACKEND_PATH must be set in .env.local (see .env.local.example).
+      # Default '.' means the current directory (XPS_INTELLIGENCE_SYSTEM root).
+      - type: bind
+        source: ${XPS_BACKEND_PATH:-.}
+        target: /app
+    environment:
+      # Supabase — primary lead storage (NOT PostgreSQL)
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://nxfbfbipjsfzoefpgrof.supabase.co}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      # Backend uses SQLite locally (no PostgreSQL required for dev)
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/local.db}
+      SANDBOX_MODE: "false"
+      ENV: local
+
+  # ── Gateway (Express) — live mount ───────────────────────────────────────
+  gateway:
+    volumes:
+      - type: bind
+        source: ${XPS_BACKEND_PATH:-.}
+        target: /app
+    environment:
+      PORT: "3000"
+      CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:3000,https://xps-intelligence.vercel.app"
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://nxfbfbipjsfzoefpgrof.supabase.co}
+
+  # ── Frontend (Vite dev server) ────────────────────────────────────────────
+  frontend:
+    image: node:20-alpine
+    container_name: xps_frontend_dev
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    volumes:
+      - type: bind
+        source: ${XPS_FRONTEND_PATH:-../../XPS-INTELLIGENCE-FRONTEND}
+        target: /app
+    environment:
+      VITE_API_URL: http://localhost:3000
+      VITE_ENV: local
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://nxfbfbipjsfzoefpgrof.supabase.co}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    networks:
+      - xps_net
+    depends_on:
+      - gateway
+
+  # ── Leads volume (mounted from C:\XPS_PLATFORM\LEADS) ────────────────────
+  leads-sync:
+    image: alpine:3.19
+    container_name: xps_leads_sync
+    command: sh -c "echo 'Leads folder mounted at /leads'; ls /leads && tail -f /dev/null"
+    volumes:
+      - type: bind
+        source: ${XPS_LEADS_PATH:-../../LEADS}
+        target: /leads
+    networks:
+      - xps_net
+
+  # ── Playwright Scraper (local browser automation) ─────────────────────────
+  playwright-scraper:
+    image: mcr.microsoft.com/playwright:v1.42.0-jammy
+    container_name: xps_playwright_scraper
+    working_dir: /app
+    command: sh -c "npm install && npm run scrape 2>&1 || echo 'Scraper ready (run manually)'"
+    environment:
+      DISPLAY: ""
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://nxfbfbipjsfzoefpgrof.supabase.co}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      # Route all scraped leads to Supabase, never to local DB
+      LEADS_STORAGE: supabase
+    volumes:
+      - type: bind
+        source: ${XPS_BACKEND_PATH:-.}
+        target: /app
+      # Shared leads output directory
+      - type: bind
+        source: ${XPS_LEADS_PATH:-../../LEADS}
+        target: /app/leads-output
+    networks:
+      - xps_net
+    profiles:
+      - scraper  # Only starts with: docker compose --profile scraper up
+
+  # Disable local PostgreSQL in favour of Supabase
+  postgres:
+    profiles:
+      - postgres-only  # Only when explicitly opted in

@@ -1,0 +1,76 @@
+name: Update Dependencies
+
+# GOVERNANCE: Tier 4 — Self-Healing (weekly schedule)
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"  # Every Monday at 9am UTC
+  workflow_dispatch:
+
+concurrency:
+  group: update-deps
+  cancel-in-progress: false
+
+jobs:
+  update-python-deps:
+    name: Update Python Dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pip-tools
+        run: pip install pip-tools
+
+      - name: Update dependencies
+        run: |
+          cd backend
+          pip-compile --upgrade requirements.in -o requirements.txt 2>/dev/null || pip install --upgrade -r requirements.txt
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(deps): update Python dependencies"
+          title: "chore(deps): update Python dependencies"
+          body: "Automated Python dependency updates."
+          branch: chore/update-python-deps
+          labels: dependencies
+
+  update-node-deps:
+    name: Update Node Dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Update dependencies
+        run: |
+          cd frontend
+          npm update
+          npm audit fix --audit-level=high || true
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(deps): update Node dependencies"
+          title: "chore(deps): update Node dependencies"
+          body: "Automated Node.js dependency updates."
+          branch: chore/update-node-deps
+          labels: dependencies

@@ -1,0 +1,336 @@
+version: "3.9"
+
+# =============================================================================
+# XPS Intelligence — Tier-5 Platform Docker Compose
+#
+# Extends the base docker-compose.yml with the full Tier-5 infrastructure:
+#   - MCP Gateway        (port 4000)
+#   - MCP Servers        (ports 4001-4009)
+#   - Agent Workers      (scaled horizontally)
+#   - Scraping Workers   (isolated network)
+#   - Sandbox Builder    (ephemeral containers)
+#   - Vector Database    (Qdrant — port 6333)
+#   - Message Queue      (Redis — port 6379)
+#   - Monitoring Stack   (Prometheus + Grafana)
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml up -d
+#   docker compose -f docker/docker-compose.yml scale agent-worker=5
+# =============================================================================
+
+networks:
+  xps_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+  scrape_net:
+    driver: bridge
+    internal: true   # No direct internet; scrapers go via proxy
+
+  sandbox_net:
+    driver: bridge
+    internal: true   # Completely isolated
+
+  monitor_net:
+    driver: bridge
+
+volumes:
+  redis_data:
+  postgres_data:
+  qdrant_data:
+  prometheus_data:
+  grafana_data:
+  ollama_data:
+  sandbox_tmp:
+
+services:
+
+  # ── Core Infrastructure ───────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    container_name: xps_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: xps_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-xps}
+      # WARNING: Change POSTGRES_PASSWORD in production. Never use default in any shared environment.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: ${POSTGRES_DB:-xps}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-xps}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: xps_qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - xps_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/health | grep -q ok"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  # ── MCP Gateway ────────────────────────────────────────────────────────────
+
+  mcp-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp-gateway
+    container_name: xps_mcp_gateway
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-xps}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-xps}
+      REDIS_URL: redis://redis:6379/1
+      QDRANT_URL: http://qdrant:6333
+      MCP_GATEWAY_PORT: "4000"
+    networks:
+      - xps_net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4000/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # ── Agent Workers ─────────────────────────────────────────────────────────
+
+  agent-worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: python -m task_queue.worker
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-xps}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-xps}
+      QDRANT_URL: http://qdrant:6333
+      MCP_GATEWAY_URL: http://mcp-gateway:4000
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
+    networks:
+      - xps_net
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 1g
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+
+  # ── Scraping Workers ──────────────────────────────────────────────────────
+
+  scraper-worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    command: python -m backend.app.scrapers.worker
+    environment:
+      REDIS_URL: redis://redis:6379/2
+      DATABASE_URL: postgresql://${POSTGRES_USER:-xps}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-xps}
+      PLAYWRIGHT_HEADLESS: "true"
+    networks:
+      - scrape_net
+      - xps_net
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          memory: 1g
+          cpus: "0.5"
+      restart_policy:
+        condition: on-failure
+        max_attempts: 3
+
+  # ── Sandbox Builder ───────────────────────────────────────────────────────
+
+  sandbox-executor:
+    image: python:3.11-slim
+    container_name: xps_sandbox
+    restart: unless-stopped
+    working_dir: /sandbox
+    volumes:
+      - sandbox_tmp:/sandbox/tmp
+      - ../sandbox:/app/sandbox:ro
+    environment:
+      SANDBOX_MAX_TIMEOUT_S: "30"
+      SANDBOX_MAX_MEMORY_MB: "256"
+    networks:
+      - sandbox_net
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.25"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: xps_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-xps}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-xps}
+      REDIS_URL: redis://redis:6379/0
+      # SECRET_KEY must be set in production — never use the default
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      MCP_GATEWAY_URL: http://mcp-gateway:4000
+    networks:
+      - xps_net
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  # ── Express Gateway ───────────────────────────────────────────────────────
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile.gateway
+    container_name: xps_gateway
+    restart: unless-stopped
+    ports:
+      - "3200:3200"
+    environment:
+      PORT: "3200"
+      BACKEND_URL: http://backend:8000
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: ${POSTGRES_DB:-xps}
+      DATABASE_USER: ${POSTGRES_USER:-xps}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    networks:
+      - xps_net
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3200/health | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── Monitoring Stack ──────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: xps_prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../nginx:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+    networks:
+      - monitor_net
+      - xps_net
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: xps_grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - monitor_net
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256m

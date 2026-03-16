@@ -1,0 +1,30 @@
+# Dockerfile.gateway – Node.js Express API gateway
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Node dependencies
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# Copy application code
+COPY . .
+
+# Set NODE_ENV so Express and dependencies use production mode
+ENV NODE_ENV=production
+# Default port — Railway overrides PORT at runtime via its own environment
+# variable injection.  The app reads process.env.PORT so this default is only
+# used for local Docker runs (e.g. docker run -p 3000:3000).
+ENV PORT=3000
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD sh -c "curl -f http://localhost:${PORT}/api/health || exit 1"
+
+CMD ["node", "server.js"]

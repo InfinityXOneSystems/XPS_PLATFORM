@@ -1,0 +1,157 @@
+name: 🏥 System Health & LLM Test
+
+# GOVERNANCE: Tier 1 — Monitoring
+# Comprehensive system health check:
+#   - Railway backend health
+#   - /api/chat/send (Copilot primary, Groq secondary)
+#   - /api/leads endpoint
+#   - Frontend repo availability
+#   - LEADS repo availability
+#
+# Runs every 30 minutes + on push to main.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 minutes
+  push:
+    branches: [main]
+    paths:
+      - "server.js"
+      - "api/gateway.js"
+      - "frontend/src/**"
+  workflow_dispatch:
+    inputs:
+      verbose:
+        description: "Verbose output"
+        type: boolean
+        default: false
+
+concurrency:
+  group: system-health-test
+  cancel-in-progress: true
+
+jobs:
+  health:
+    name: 🏥 System Health Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check Railway backend /api/health
+        id: backend
+        run: |
+          echo "## Railway Backend Health" >> $GITHUB_STEP_SUMMARY
+          RESPONSE=$(curl -sf --max-time 15 https://xps-intelligence.up.railway.app/api/health 2>/dev/null || echo '{"status":"UNREACHABLE"}')
+          echo "Response: $RESPONSE"
+          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','?'))" 2>/dev/null || echo "?")
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          if [ "$STATUS" = "OK" ]; then
+            echo "✅ Backend HEALTHY" >> $GITHUB_STEP_SUMMARY
+            echo "health_ok=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Backend status: $STATUS" >> $GITHUB_STEP_SUMMARY
+            echo "health_ok=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Test /api/chat/send (Copilot + Groq LLM)
+        id: chat
+        continue-on-error: true
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Chat LLM Test (/api/chat/send)" >> $GITHUB_STEP_SUMMARY
+          PAYLOAD='{"message":"Hello — respond with exactly: XPS_HEALTH_OK","agentRole":"HealthBot","sessionId":"health-test-'$(date +%s)'"}'
+          RESPONSE=$(curl -sf --max-time 30 \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            https://xps-intelligence.up.railway.app/api/chat/send 2>/dev/null || echo '{}')
+
+          echo "Raw response (truncated): ${RESPONSE:0:300}"
+
+          REPLY=$(echo "$RESPONSE" | python3 -c "
+          import sys, json
+          try:
+              d = json.load(sys.stdin)
+              if isinstance(d.get('reply'), dict):
+                  content = d['reply'].get('content', '')
+              else:
+                  content = str(d.get('reply', ''))
+              model = d['reply'].get('model', 'unknown') if isinstance(d.get('reply'), dict) else 'unknown'
+              print(f'content={content[:120]}')
+              print(f'model={model}')
+          except Exception as e:
+              print(f'content=parse_error: {e}')
+              print('model=unknown')
+          " 2>/dev/null || echo "content=no_response")
+
+          CONTENT=$(echo "$REPLY" | grep '^content=' | cut -d= -f2-)
+          MODEL=$(echo "$REPLY" | grep '^model=' | cut -d= -f2-)
+
+          echo "chat_content=$CONTENT" >> $GITHUB_OUTPUT
+          echo "chat_model=$MODEL" >> $GITHUB_OUTPUT
+
+          if [ -n "$CONTENT" ] && [ "$CONTENT" != "no_response" ] && [ "$CONTENT" != "parse_error" ]; then
+            echo "✅ Chat LLM responded (model: $MODEL)" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "$CONTENT" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "chat_ok=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  Chat LLM did not respond (needs GROQ_API_KEY or GITHUB_TOKEN env var)" >> $GITHUB_STEP_SUMMARY
+            echo "chat_ok=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Test /api/leads endpoint
+        id: leads
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Leads Endpoint Test (/api/leads)" >> $GITHUB_STEP_SUMMARY
+          RESPONSE=$(curl -sf --max-time 15 "https://xps-intelligence.up.railway.app/api/leads?limit=5" 2>/dev/null || echo '[]')
+          COUNT=$(echo "$RESPONSE" | python3 -c "
+          import sys, json
+          try:
+              d = json.load(sys.stdin)
+              if isinstance(d, list):
+                  print(len(d))
+              elif isinstance(d, dict):
+                  leads = d.get('leads', d.get('data', {}).get('leads', []))
+                  print(len(leads) if isinstance(leads, list) else 0)
+              else:
+                  print(0)
+          except:
+              print(0)
+          " 2>/dev/null || echo "0")
+          echo "leads_count=$COUNT" >> $GITHUB_OUTPUT
+          if [ "$COUNT" -gt "0" ] 2>/dev/null; then
+            echo "✅ Leads endpoint returning $COUNT leads (sample)" >> $GITHUB_STEP_SUMMARY
+            echo "leads_ok=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  Leads endpoint returned 0 results" >> $GITHUB_STEP_SUMMARY
+            echo "leads_ok=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Test /api/agents endpoint
+        id: agents
+        continue-on-error: true
+        run: |
+          RESPONSE=$(curl -sf --max-time 10 https://xps-intelligence.up.railway.app/api/agents 2>/dev/null || echo '[]')
+          COUNT=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d,list) else 0)" 2>/dev/null || echo "0")
+          echo "agents_count=$COUNT" >> $GITHUB_OUTPUT
+          echo "Agent registry: $COUNT agents"
+
+      - name: Final summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend health | ${{ steps.backend.outputs.health_ok == 'true' && '✅ OK' || '❌ FAIL' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Chat LLM | ${{ steps.chat.outputs.chat_ok == 'true' && '✅ OK' || '⚠️ No LLM key' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Leads endpoint | ${{ steps.leads.outputs.leads_ok == 'true' && '✅ OK' || '⚠️ No leads' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Backend URL:** https://xps-intelligence.up.railway.app" >> $GITHUB_STEP_SUMMARY
+          echo "**Frontend Repo:** https://github.com/InfinityXOneSystems/XPS-INTELLIGENCE-FRONTEND" >> $GITHUB_STEP_SUMMARY
+          echo "**LEADS Repo:** https://github.com/InfinityXOneSystems/LEADS" >> $GITHUB_STEP_SUMMARY

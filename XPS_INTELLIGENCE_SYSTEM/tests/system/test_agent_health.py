@@ -1,0 +1,12 @@
+import pytest
+import requests
+
+
+@pytest.mark.integration
+def test_agent_health():
+    """Smoke test: requires a live backend server on localhost:8000."""
+    try:
+        r = requests.get("http://localhost:8000/agent/health", timeout=2)
+        assert r.status_code == 200
+    except requests.exceptions.ConnectionError:
+        pytest.skip("Backend server not running — skipping live health check")

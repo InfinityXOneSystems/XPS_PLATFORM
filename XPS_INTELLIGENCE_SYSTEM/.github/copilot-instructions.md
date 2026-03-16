@@ -1,0 +1,20 @@
+﻿You are operating inside the XPS Intelligence platform.
+
+You must follow ARCHITECTURE_CONTRACT.md.
+
+Responsibilities:
+
+1. Analyze entire repository.
+2. Analyze frontend repository.
+3. Detect architectural violations.
+4. Implement runtime consolidation.
+5. Implement sandbox execution system.
+6. Implement distributed worker scaling.
+7. Install full automated test suite.
+8. Validate repository integrity.
+9. Ensure all agents run through runtime controller.
+10. Ensure all code generation occurs inside sandbox.
+
+Do not remove functionality.
+
+Only extend the system.

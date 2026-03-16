@@ -1,0 +1,156 @@
+name: Issue → Copilot Auto-Implement
+
+# Automatically assign issues to GitHub Copilot for autonomous implementation.
+# When a new issue is labeled 'copilot' or 'auto-implement', Copilot opens a PR.
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  triage:
+    name: Triage & Route Issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only run on relevant labels
+    if: |
+      contains(github.event.issue.labels.*.name, 'bug') ||
+      contains(github.event.issue.labels.*.name, 'enhancement') ||
+      contains(github.event.issue.labels.*.name, 'workflow') ||
+      contains(github.event.issue.labels.*.name, 'copilot') ||
+      contains(github.event.issue.labels.*.name, 'auto-implement')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure labels exist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const requiredLabels = [
+              { name: 'bug',             color: 'd73a4a', description: 'Something is not working' },
+              { name: 'enhancement',     color: 'a2eeef', description: 'New feature or request' },
+              { name: 'workflow',        color: 'e4e669', description: 'GitHub Actions / CI issue' },
+              { name: 'needs-triage',    color: 'ededed', description: 'Needs initial review' },
+              { name: 'copilot',         color: '0075ca', description: 'Assigned to GitHub Copilot' },
+              { name: 'auto-implement',  color: '0075ca', description: 'Auto-implementation requested' },
+              { name: 'in-progress',     color: 'f9d0c4', description: 'Currently being worked on' },
+              { name: 'guardian-auto',   color: 'e4e669', description: 'Auto-created by Repo Guardian' },
+              { name: 'test-failure',    color: 'd73a4a', description: 'Test suite failure' },
+              { name: 'automated',       color: 'bfd4f2', description: 'Automated action' },
+            ];
+
+            const { data: existing } = await github.rest.issues.listLabelsForRepo({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              per_page: 100,
+            });
+            const existingNames = new Set(existing.map(l => l.name));
+
+            for (const label of requiredLabels) {
+              if (!existingNames.has(label.name)) {
+                try {
+                  await github.rest.issues.createLabel({
+                    owner:       context.repo.owner,
+                    repo:        context.repo.repo,
+                    name:        label.name,
+                    color:       label.color,
+                    description: label.description,
+                  });
+                  console.log(`Created label: ${label.name}`);
+                } catch (e) {
+                  console.log(`Label ${label.name} may already exist: ${e.message}`);
+                }
+              }
+            }
+
+      - name: Post acknowledgement comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const labels = issue.labels.map(l => l.name);
+            const isWorkflow = labels.includes('workflow');
+            const isBug      = labels.includes('bug');
+            const isCopilot  = labels.includes('copilot') || labels.includes('auto-implement');
+
+            let routingNote = '';
+            if (isCopilot) {
+              routingNote = '\n\n> 🤖 **Auto-implementation requested.** GitHub Copilot will analyze this issue and open a PR automatically.';
+            } else if (isBug || isWorkflow) {
+              routingNote = '\n\n> 💡 **Tip:** Add the `copilot` label to this issue to have GitHub Copilot automatically implement a fix.';
+            }
+
+            // Check if we already commented
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: issue.number,
+            });
+            const already = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Issue Triage')
+            );
+            if (already) return;
+
+            const severityMap = {
+              'Critical — system is down': '🚨 Critical',
+              'High — major feature broken': '🔴 High',
+              'Medium — feature partially broken': '🟡 Medium',
+              'Low — minor issue': '🟢 Low',
+            };
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: issue.number,
+              body: [
+                '## 🤖 Issue Triage — XPS Lead Intelligence Platform',
+                '',
+                `**Issue #${issue.number}** has been received and triaged.`,
+                '',
+                '| Field | Value |',
+                '|-------|-------|',
+                `| Labels | ${labels.map(l => '`' + l + '`').join(', ') || 'none'} |`,
+                `| Created | ${new Date().toISOString().split('T')[0]} |`,
+                `| Status | Triaged ✓ |`,
+                '',
+                '### Next Steps',
+                '1. A maintainer or Copilot agent will review and implement a fix/feature',
+                '2. A pull request will be opened with the implementation',
+                '3. After review and merge, this issue will be closed automatically',
+                routingNote,
+                '',
+                '_Automated response from the XPS Issue Triage System_',
+              ].join('\n'),
+            });
+
+      - name: Remove needs-triage label
+        uses: actions/github-script@v7
+        continue-on-error: true
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const labels = issue.labels.map(l => l.name);
+            if (labels.includes('needs-triage')) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                issue_number: issue.number,
+                name: 'needs-triage',
+              }).catch(() => {});
+            }
+            // Add in-progress if copilot label
+            if (labels.includes('copilot') || labels.includes('auto-implement')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                issue_number: issue.number,
+                labels: ['in-progress'],
+              }).catch(() => {});
+            }

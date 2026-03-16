@@ -1,0 +1,167 @@
+# .github/workflows/enterprise_lead_pipeline.yml
+# ================================================
+# Enterprise Autonomous Lead Pipeline
+# GOVERNANCE: Tier 3/4 — daily schedule + dispatch
+# Auth: Infinity Orchestrator GitHub App (GH_APP_ID + GH_APP_PRIVATE_KEY)
+#       with fallback to GH_PAT for cross-repo writes.
+# See: .infinity/WORKFLOW_GOVERNANCE.md
+
+name: 🕷️ Enterprise Lead Pipeline
+
+on:
+  schedule:
+    - cron: '0 7 * * *'       # 07:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: 'JSON array of scrape targets (optional override)'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Dry run — skip GitHub push and email'
+        type: boolean
+        default: false
+
+concurrency:
+  group: enterprise-lead-pipeline
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  pipeline:
+    name: Autonomous Lead Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      id-token: write    # required for OIDC / App auth
+
+    steps:
+      # ── 1. Mint an Infinity Orchestrator App token ──────────────────────────
+      - name: Generate Infinity Orchestrator App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: "2494652"  # Infinity Orchestrator App (hardcoded; only private key secret needed)
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          # Request access to all three repos needed by the pipeline
+          repositories: >-
+            XPS_INTELLIGENCE_SYSTEM,
+            LEADS,
+            XPS-INTELLIGENCE-FRONTEND
+        continue-on-error: true   # fall back to GH_PAT if App not configured
+
+      - name: Resolve cross-repo token
+        id: token
+        run: |
+          # Use App token if generated, otherwise GH_PAT
+          if [ -n "${{ steps.app-token.outputs.token }}" ]; then
+            echo "token=${{ steps.app-token.outputs.token }}" >> $GITHUB_OUTPUT
+            echo "source=github_app" >> $GITHUB_OUTPUT
+            echo "✅ Using Infinity Orchestrator GitHub App token"
+          elif [ -n "${{ secrets.GH_PAT }}" ]; then
+            echo "token=${{ secrets.GH_PAT }}" >> $GITHUB_OUTPUT
+            echo "source=gh_pat" >> $GITHUB_OUTPUT
+            echo "⚠️  Falling back to GH_PAT"
+          else
+            echo "token=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_OUTPUT
+            echo "source=github_token" >> $GITHUB_OUTPUT
+            echo "⚠️  Using GITHUB_TOKEN (cross-repo writes may fail)"
+          fi
+
+      - name: Checkout XPS Intelligence System
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.token.outputs.token }}
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install playwright asyncio aiohttp
+          pip install -r backend/requirements.txt 2>/dev/null || true
+          playwright install chromium --with-deps 2>/dev/null || echo "Playwright browser install skipped"
+
+      - name: Run autonomous pipeline
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          LEADS_EMAIL_TO: info@infinityxonesystems.com
+          SCRAPER_TARGETS: ${{ inputs.targets }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || 'https://nxfbfbipjsfzoefpgrof.supabase.co' }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python -c "
+          import asyncio, sys, os, json
+          sys.path.insert(0, '.')
+          from agents.pipeline.autonomous_lead_pipeline import run_pipeline, DEFAULT_TARGETS
+
+          targets_json = os.getenv('SCRAPER_TARGETS', '')
+          targets = json.loads(targets_json) if targets_json.strip() else DEFAULT_TARGETS
+
+          result = asyncio.run(run_pipeline(targets))
+          print('Pipeline result:', json.dumps(result, indent=2, default=str))
+          if not result.get('success'):
+              sys.exit(1)
+          print()
+          print('=' * 60)
+          print('PIPELINE SUMMARY')
+          print('=' * 60)
+          print(f'Total leads:  {result[\"leads\"]}')
+          print(f'HOT:          {result[\"hot\"]}')
+          print(f'WARM:         {result[\"warm\"]}')
+          print(f'COLD:         {result[\"cold\"]}')
+          print(f'GitHub push:  {result[\"github\"][\"success\"]}')
+          print(f'Email sent:   {result[\"email\"][\"success\"]}')
+          print(f'Runtime:      {result[\"elapsed_sec\"]}s')
+          print('=' * 60)
+          "
+
+      - name: Validate and enrich leads
+        run: |
+          python scripts/lead_validator.py --no-url-check 2>/dev/null || \
+            echo "⚠️  Lead validator not available — skipping enrichment"
+
+      - name: Publish leads to LEADS repo + Frontend repo
+        env:
+          # Infinity Orchestrator App auth — highest privilege
+          GH_APP_ID: "2494652"  # Infinity Orchestrator App ID
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          # Fallbacks
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}
+          LEADS_MAX: "500"
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: python scripts/publish_leads_to_repos.py
+
+      - name: Commit updated leads to XPS repo
+        run: |
+          git config --global user.name "XPS Pipeline Bot"
+          git config --global user.email "info@infinityxonesystems.com"
+          git add leads/ || true
+          git diff --cached --quiet || git commit -m "🤖 [Pipeline] Auto-update leads [skip ci] $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push origin HEAD || echo "Nothing to push"
+
+      - name: Upload leads artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: leads-${{ github.run_number }}
+          path: |
+            leads/leads_*.json
+            leads/leads_*.csv
+          retention-days: 30
+
+      - name: Pipeline status
+        if: always()
+        run: |
+          echo "::notice title=Pipeline Complete::Lead pipeline finished — check artifacts"

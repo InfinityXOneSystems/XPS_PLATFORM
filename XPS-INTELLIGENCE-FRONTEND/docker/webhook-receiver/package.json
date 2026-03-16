@@ -1,0 +1,10 @@
+{
+  "name": "xps-webhook-receiver",
+  "version": "1.0.0",
+  "description": "GitHub webhook receiver for XPS Intelligence bidirectional Docker sync",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {}
+}

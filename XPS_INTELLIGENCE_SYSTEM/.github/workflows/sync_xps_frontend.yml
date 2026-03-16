@@ -1,0 +1,70 @@
+name: 🔧 Sync XPS-INTELLIGENCE-FRONTEND Config
+
+# Patches the wrong Railway backend URL in InfinityXOneSystems/XPS-INTELLIGENCE-FRONTEND.
+#
+# Root cause: XPS-INTELLIGENCE-FRONTEND has 'xpsintelligencesystem-production.up.railway.app'
+# and 'xps-intelligence-system.up.railway.app' hard-coded, but the real Railway service
+# is at https://xps-intelligence.up.railway.app — causing the UI to show "no backend".
+#
+# Files patched in XPS-INTELLIGENCE-FRONTEND:
+#   - vercel.json                   (VITE_API_URL env + rewrite destinations)
+#   - .env.production               (VITE_API_URL / VITE_WS_URL)
+#   - .env.example                  (VITE_API_URL / BACKEND_URL)
+#   - .env.local.example            (comment references)
+#   - pages/api/_proxyHelper.js     (DEFAULT_BACKEND constant)
+#   - src/lib/leadsApi.ts           (response shape normalisation)
+#
+# Required secrets:
+#   GH_APP_ID + GH_APP_PRIVATE_KEY  (Infinity Orchestrator GitHub App) — preferred
+#   GH_PAT                          (personal access token) — fallback
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (show changes without writing)'
+        required: false
+        default: 'false'
+        type: choice
+        options: ['true', 'false']
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/fix_xps_frontend_config.py'
+
+permissions:
+  contents: read
+
+jobs:
+  patch-frontend-config:
+    name: 🔧 Patch XPS-INTELLIGENCE-FRONTEND URLs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout XPS_INTELLIGENCE_SYSTEM
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run config patcher
+        env:
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '1' || '0' }}
+        run: python scripts/fix_xps_frontend_config.py
+
+      - name: Verify patch (dry-run smoke test)
+        if: github.event.inputs.dry_run != 'true'
+        env:
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          DRY_RUN: '1'
+        run: |
+          echo "Verifying no more wrong URLs remain..."
+          python scripts/fix_xps_frontend_config.py 2>&1 | grep -E "No change needed|would update" || true
