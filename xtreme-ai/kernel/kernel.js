@@ -1,6 +1,6 @@
-﻿import Queue from 'bull'
-import fetch from 'node-fetch'
-import express from 'express'
+﻿const Queue = require('bull')
+const fetch = require('node-fetch')
+const express = require('express')
 
 const app = express()
 app.use(express.json())
@@ -66,22 +66,13 @@ queue.process(async(job)=>{
 
 })
 
-############################################################
-# HEALTH + CONTROL ENDPOINTS
-############################################################
-
 app.get("/", (req,res)=> res.json({status:"xtreme-ai live"}))
-
 app.get("/health", (req,res)=> res.json({status:"ok"}))
 
 app.post("/job", async (req,res)=>{
  await queue.add(req.body)
  res.json({queued:true})
 })
-
-############################################################
-# START SERVER (CRITICAL)
-############################################################
 
 app.listen(PORT, "0.0.0.0", ()=>{
  console.log("SYSTEM LIVE ON PORT", PORT)

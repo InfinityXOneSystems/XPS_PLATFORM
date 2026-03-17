@@ -2,7 +2,6 @@
   "name": "xtreme-ai",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
   "scripts": {
     "start": "node kernel/kernel.js",
     "build": "echo build-complete",
@@ -11,6 +10,6 @@
   "dependencies": {
     "bull": "^4.12.2",
     "express": "^5.2.1",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^2.7.0"
   }
 }
