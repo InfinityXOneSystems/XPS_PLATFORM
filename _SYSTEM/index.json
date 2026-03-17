@@ -1,5 +1,5 @@
 ﻿{
-  "modules": ["frontend","backend","workers","scraper","crm"],
-  "agents": ["planner","builder","validator","scraper"],
-  "flows": ["build","scrape","deploy","followup"]
+ "modules":["frontend","backend","workers","scraper","crm"],
+ "agents":["planner","builder","validator"],
+ "flows":["build","scrape","deploy"]
 }

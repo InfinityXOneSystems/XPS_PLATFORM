@@ -2,5 +2,7 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "python -m http.server "
+startCommand = "python main.py"
 healthcheckPath = "/"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
