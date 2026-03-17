@@ -1,12 +1,17 @@
-﻿from http.server import BaseHTTPRequestHandler, HTTPServer
-import os
+﻿import os
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-PORT=int(os.getenv("PORT",8000))
+PORT = int(os.environ.get("PORT", 8000))
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"XPS RUNNING")
+        if self.path == "/health":
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+        else:
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"XPS LIVE")
 
-HTTPServer(("",PORT),Handler).serve_forever()
+HTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
