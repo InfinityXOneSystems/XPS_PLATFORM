@@ -5,10 +5,10 @@ nixPkgs = ["pkgs.python311"]
 
 [phases.install]
 cmds = [
-  "python -m ensurepip --upgrade",
-  "python -m pip install --upgrade pip",
-  "python -m pip install -r requirements.txt"
+  "python -m venv /opt/venv",
+  "/opt/venv/bin/python -m pip install --upgrade pip",
+  "/opt/venv/bin/python -m pip install -r requirements.txt"
 ]
 
 [start]
-cmd = "python main.py"
+cmd = "/opt/venv/bin/python main.py"
