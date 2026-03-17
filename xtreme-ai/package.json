@@ -1,15 +1,1 @@
-{
-  "name": "xtreme-ai",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "start": "node kernel/kernel.js", "worker": "node worker.js", "steel": "node steel.js",
-    "build": "echo build-complete",
-    "test": "echo no-tests"
-  },
-  "dependencies": {
-    "bull": "^4.12.2",
-    "express": "^5.2.1",
-    "node-fetch": "^2.7.0"
-  }
-}
+{  "name": "xtreme-ai",  "version": "1.0.0",  "private": true,  "scripts": {    "start": "node kernel/kernel.js", "worker": "node worker.js", "steel": "node steel.js",    "build": "echo build-complete",    "test": "echo no-tests"  },  "dependencies": {    "bull": "^4.12.2",    "express": "^5.2.1",    "node-fetch": "^2.7.0"  }}
