@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "node kernel/kernel.js",
+    "start": "node kernel/kernel.js", "worker": "node worker.js",
     "build": "echo build-complete",
     "test": "echo no-tests"
   },
