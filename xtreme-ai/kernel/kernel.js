@@ -7,17 +7,14 @@ app.use(express.json())
 
 const PORT = process.env.PORT || 8080
 
-// SAFE REDIS FALLBACK (CRITICAL FIX)
-const REDIS = process.env.REDIS_URL || "redis://127.0.0.1:6379"
+const REDIS = process.env.REDIS_URL
 
-let queue
-
-try {
- queue = new Queue('jobs', REDIS)
- console.log("REDIS CONNECTED:", REDIS)
-} catch {
- console.log("REDIS DISABLED — FALLBACK MODE")
+if(!REDIS){
+ console.error("FATAL: REDIS_URL MISSING")
+ process.exit(1)
 }
+
+const queue = new Queue('jobs', REDIS)
 
 const SERVICES = {
  BYTEBOT: "http://bytebot-agent.railway.internal",
@@ -25,16 +22,42 @@ const SERVICES = {
  CLAWBOT: "http://clawbot.railway.internal"
 }
 
-app.get("/", (req,res)=> res.status(200).json({status:"live"}))
-app.get("/health", (req,res)=> res.status(200).json({status:"ok"}))
-
-app.post("/job", async (req,res)=>{
- if(queue){
-  await queue.add(req.body)
+async function callService(url, payload){
+ try {
+  await fetch(url,{
+   method:"POST",
+   headers:{ "Content-Type":"application/json" },
+   body: JSON.stringify(payload || {})
+  })
+ } catch(e){
+  console.error("SERVICE ERROR:", url)
  }
- res.status(200).json({queued:true})
+}
+
+queue.process(async(job)=>{
+
+ if(job.data.type==="scrape"){
+  await callService(SERVICES.STEEL+"/scrape")
+ }
+
+ if(job.data.type==="agent"){
+  await callService(SERVICES.CLAWBOT+"/run", job.data.payload)
+ }
+
+ if(job.data.type==="automation"){
+  await callService(SERVICES.BYTEBOT+"/execute", job.data.payload)
+ }
+
 })
 
-app.listen(PORT, "0.0.0.0", ()=>{
- console.log("SYSTEM LIVE ON PORT", PORT)
+app.get("/", (req,res)=> res.json({status:"live"}))
+app.get("/health", (req,res)=> res.json({status:"ok"}))
+
+app.post("/job", async (req,res)=>{
+ await queue.add(req.body)
+ res.json({queued:true})
+})
+
+app.listen(PORT,"0.0.0.0",()=>{
+ console.log("SYSTEM LIVE WITH REDIS + SERVICE MESH")
 })
