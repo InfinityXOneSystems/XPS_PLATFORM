@@ -1,12 +1,18 @@
 ﻿import Queue from 'bull'
 import fetch from 'node-fetch'
+import express from 'express'
+
+const app = express()
+app.use(express.json())
+
+const PORT = process.env.PORT || 8080
 
 const queue = new Queue('jobs', process.env.REDIS_URL)
 
 const SERVICES = {
- BYTEBOT: "http://bytebot-agent.railway.internal",
- STEEL: "http://steel-browser.railway.internal",
- CLAWBOT: "http://clawbot.railway.internal"
+  BYTEBOT: "http://bytebot-agent.railway.internal",
+  STEEL: "http://steel-browser.railway.internal",
+  CLAWBOT: "http://clawbot.railway.internal"
 }
 
 async function routeLLM(payload){
@@ -60,4 +66,23 @@ queue.process(async(job)=>{
 
 })
 
-console.log("KERNEL ONLINE")
+############################################################
+# HEALTH + CONTROL ENDPOINTS
+############################################################
+
+app.get("/", (req,res)=> res.json({status:"xtreme-ai live"}))
+
+app.get("/health", (req,res)=> res.json({status:"ok"}))
+
+app.post("/job", async (req,res)=>{
+ await queue.add(req.body)
+ res.json({queued:true})
+})
+
+############################################################
+# START SERVER (CRITICAL)
+############################################################
+
+app.listen(PORT, "0.0.0.0", ()=>{
+ console.log("SYSTEM LIVE ON PORT", PORT)
+})

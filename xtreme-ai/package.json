@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "xtreme-ai",
   "version": "1.0.0",
   "private": true,
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "bull": "^4.12.2",
+    "express": "^5.2.1",
     "node-fetch": "^3.3.2"
   }
 }
