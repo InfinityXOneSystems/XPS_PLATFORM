@@ -1,1 +1,1 @@
-﻿Deploy system to Railway and validate.
+Deploy system to Railway and validate.

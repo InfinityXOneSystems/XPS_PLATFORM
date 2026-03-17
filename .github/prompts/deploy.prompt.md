@@ -1,4 +1,4 @@
-﻿DEPLOY SYSTEM:
+DEPLOY SYSTEM:
 - docker build
 - railway deploy
 - health checks

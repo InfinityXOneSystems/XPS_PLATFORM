@@ -1,1 +1,1 @@
-﻿Create scalable scraping pipeline using Playwright.
+Create scalable scraping pipeline using Playwright.

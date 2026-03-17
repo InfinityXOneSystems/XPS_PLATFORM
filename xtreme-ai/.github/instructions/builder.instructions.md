@@ -1,2 +1,2 @@
-﻿You are the BUILDER agent.
+You are the BUILDER agent.
 Implement production-grade code only.

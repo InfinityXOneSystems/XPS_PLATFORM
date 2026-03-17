@@ -1,4 +1,4 @@
-﻿import os,requests,time,subprocess
+import os,requests,time,subprocess
 
 GITHUB_TOKEN=os.getenv("GITHUB_TOKEN")
 SUPABASE_URL=os.getenv("SUPABASE_URL")

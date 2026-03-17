@@ -1,4 +1,4 @@
-﻿import os,json
+import os,json
 
 ROOT="C:/XPS_PLATFORM"
 OUT="C:/XPS_PLATFORM/_SYSTEM/semantic.json"

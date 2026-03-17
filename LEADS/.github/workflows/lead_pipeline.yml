@@ -1,4 +1,4 @@
-﻿name: Lead Intelligence Pipeline
+name: Lead Intelligence Pipeline
 
 on:
   schedule:

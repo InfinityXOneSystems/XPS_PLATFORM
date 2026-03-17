@@ -1,4 +1,4 @@
-﻿name: XPS AUTO ISSUE ENGINE
+name: XPS AUTO ISSUE ENGINE
 
 on:
   workflow_dispatch:

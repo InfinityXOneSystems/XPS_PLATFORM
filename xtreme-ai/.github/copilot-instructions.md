@@ -1,4 +1,4 @@
-﻿SYSTEM GOAL
+SYSTEM GOAL
 Build and maintain a fully autonomous AI development + lead intelligence system.
 
 ENVIRONMENT

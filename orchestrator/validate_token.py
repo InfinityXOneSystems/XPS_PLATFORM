@@ -1,4 +1,4 @@
-﻿import requests, sys
+import requests, sys
 
 ENV_PATH = r'C:\XPS_PLATFORM\orchestrator\.env'
 

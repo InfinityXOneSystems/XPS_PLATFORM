@@ -1,4 +1,4 @@
-﻿name: XPS DEPLOY PIPELINE
+name: XPS DEPLOY PIPELINE
 
 on:
   push:

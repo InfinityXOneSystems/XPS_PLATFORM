@@ -1,4 +1,4 @@
-﻿name: autonomous-build
+name: autonomous-build
 
 on:
  workflow_dispatch:

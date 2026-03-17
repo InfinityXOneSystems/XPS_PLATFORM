@@ -1,4 +1,4 @@
-﻿import subprocess
+import subprocess
 import os
 
 LEADS_REPO="C:/XPS_PLATFORM/LEADS"

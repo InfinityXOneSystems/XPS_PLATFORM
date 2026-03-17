@@ -1,4 +1,4 @@
-﻿SYSTEM GOAL:
+SYSTEM GOAL:
 Build autonomous lead intelligence platform
 
 REQUIREMENTS:

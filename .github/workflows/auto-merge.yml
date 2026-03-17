@@ -1,4 +1,4 @@
-﻿name: XPS AUTO MERGE
+name: XPS AUTO MERGE
 
 on:
   pull_request:

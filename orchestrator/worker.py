@@ -1,4 +1,4 @@
-﻿import time
+import time
 from event_bus import publish
 
 while True:

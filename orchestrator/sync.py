@@ -1,4 +1,4 @@
-﻿import os,subprocess,time,requests
+import os,subprocess,time,requests
 
 SUPABASE=os.getenv("SUPABASE_URL")
 KEY=os.getenv("SUPABASE_KEY")

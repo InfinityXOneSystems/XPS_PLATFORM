@@ -1,4 +1,4 @@
-﻿import os
+import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 PORT = int(os.environ.get("PORT", 8000))

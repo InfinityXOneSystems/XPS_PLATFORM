@@ -1,4 +1,4 @@
-﻿name: XPS ORCHESTRATOR ROUTER
+name: XPS ORCHESTRATOR ROUTER
 
 on:
   repository_dispatch:

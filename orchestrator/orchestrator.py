@@ -1,4 +1,4 @@
-﻿import os, json, requests, time
+import os, json, requests, time
 
 BASE = os.path.dirname(__file__)
 

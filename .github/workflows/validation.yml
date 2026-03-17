@@ -1,4 +1,4 @@
-﻿name: validation
+name: validation
 
 on:
  pull_request:

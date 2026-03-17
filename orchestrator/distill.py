@@ -1,4 +1,4 @@
-﻿import os,json
+import os,json
 
 ROOT=r'C:/XPS_PLATFORM'
 OUT=r'C:/XPS_PLATFORM/_SYSTEM/distilled.json'

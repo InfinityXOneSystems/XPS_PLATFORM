@@ -1,4 +1,4 @@
-﻿name: XPS AUTO PR ENGINE
+name: XPS AUTO PR ENGINE
 
 on:
   push:

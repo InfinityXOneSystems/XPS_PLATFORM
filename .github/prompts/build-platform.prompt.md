@@ -1,4 +1,4 @@
-﻿BUILD FULL PLATFORM:
+BUILD FULL PLATFORM:
 - backend + frontend
 - dockerized
 - railway deploy

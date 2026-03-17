@@ -1,4 +1,4 @@
-﻿import multiprocessing, time
+import multiprocessing, time
 
 def worker(id):
     while True:

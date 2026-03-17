@@ -1,4 +1,4 @@
-﻿import os,json,hashlib
+import os,json,hashlib
 
 ROOT="C:/XPS_PLATFORM"
 OUTPUT="C:/XPS_PLATFORM/_SYSTEM/distilled.json"

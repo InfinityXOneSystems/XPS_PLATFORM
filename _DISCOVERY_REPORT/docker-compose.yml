@@ -1,28 +1,28 @@
 version: "3.9"
 
-# ─────────────────────────────────────────────────────────────────────────────
-# XPS Intelligence Platform – Full Stack Docker Compose
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# XPS Intelligence Platform â€“ Full Stack Docker Compose
 #
 # Services:
-#   backend          – FastAPI agent core  (port 8000)
-#   gateway          – Express.js API      (port 3200)
-#   worker           – Async task worker   (no external port)
-#   frontend         – Next.js dashboard   (port 3000)
-#   redis            – Task queue + cache  (port 6379)
-#   postgres         – Structured storage  (port 5432)
-#   qdrant           – Vector embeddings   (port 6333)
-#   ollama           – Local LLM runtime   (port 11434)
-#   scraper-worker   – Python scraper      (no external port)
-#   interpreter      – Open Interpreter    (no external port)
+#   backend          â€“ FastAPI agent core  (port 8000)
+#   gateway          â€“ Express.js API      (port 3200)
+#   worker           â€“ Async task worker   (no external port)
+#   frontend         â€“ Next.js dashboard   (port 3000)
+#   redis            â€“ Task queue + cache  (port 6379)
+#   postgres         â€“ Structured storage  (port 5432)
+#   qdrant           â€“ Vector embeddings   (port 6333)
+#   ollama           â€“ Local LLM runtime   (port 11434)
+#   scraper-worker   â€“ Python scraper      (no external port)
+#   interpreter      â€“ Open Interpreter    (no external port)
 #
 # Usage:
 #   docker compose up -d
 #   docker compose logs -f backend
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 services:
 
-  # ── Redis ────────────────────────────────────────────────────────────────
+  # â”€â”€ Redis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   redis:
     image: redis:7-alpine
     container_name: xps_redis
@@ -40,7 +40,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── PostgreSQL ───────────────────────────────────────────────────────────
+  # â”€â”€ PostgreSQL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   postgres:
     image: postgres:16-alpine
     container_name: xps_postgres
@@ -61,7 +61,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Qdrant ───────────────────────────────────────────────────────────────
+  # â”€â”€ Qdrant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   qdrant:
     image: qdrant/qdrant:latest
     container_name: xps_qdrant
@@ -79,7 +79,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Ollama ───────────────────────────────────────────────────────────────
+  # â”€â”€ Ollama â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   ollama:
     image: ollama/ollama:latest
     container_name: xps_ollama
@@ -98,7 +98,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── FastAPI Backend (Agent Core) ─────────────────────────────────────────
+  # â”€â”€ FastAPI Backend (Agent Core) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   backend:
     build:
       context: .
@@ -139,7 +139,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── Express.js API Gateway ───────────────────────────────────────────────
+  # â”€â”€ Express.js API Gateway â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   gateway:
     build:
       context: .
@@ -169,7 +169,7 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── Python Task Worker ───────────────────────────────────────────────────
+  # â”€â”€ Python Task Worker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   worker:
     build:
       context: .
@@ -203,7 +203,7 @@ services:
     deploy:
       replicas: 2
 
-  # ── Scraper Worker ───────────────────────────────────────────────────────
+  # â”€â”€ Scraper Worker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   scraper-worker:
     build:
       context: .
@@ -223,7 +223,7 @@ services:
     networks:
       - xps_net
 
-  # ── Open Interpreter Worker ──────────────────────────────────────────────
+  # â”€â”€ Open Interpreter Worker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   interpreter-worker:
     build:
       context: .

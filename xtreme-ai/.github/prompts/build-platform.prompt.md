@@ -1,1 +1,1 @@
-﻿Build full platform using repo instructions and system architecture.
+Build full platform using repo instructions and system architecture.
