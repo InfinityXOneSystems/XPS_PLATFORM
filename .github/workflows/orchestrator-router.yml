@@ -1,0 +1,15 @@
+﻿name: XPS ORCHESTRATOR ROUTER
+
+on:
+  repository_dispatch:
+    types: [scrape, process, deploy, test]
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Debug
+        run: |
+          echo "TYPE: ${{ github.event.action }}"
+          echo "PAYLOAD: ${{ toJson(github.event.client_payload) }}"

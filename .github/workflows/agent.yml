@@ -1,0 +1,15 @@
+﻿name: XPS AGENT EXECUTION
+
+on:
+  issues:
+    types: [assigned]
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Log Task
+        run: echo "Copilot executing assigned issue"

@@ -1,0 +1,14 @@
+﻿name: XPS DEPLOY PIPELINE
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Railway
+        run: |
+          echo "DEPLOY TRIGGERED"

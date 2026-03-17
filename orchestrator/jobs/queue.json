@@ -1,0 +1,5 @@
+﻿[
+  {"type":"scrape","repo":"InfinityXOneSystems/XPS_PLATFORM"},
+  {"type":"process","repo":"InfinityXOneSystems/XPS_PLATFORM"},
+  {"type":"deploy","repo":"InfinityXOneSystems/XPS_PLATFORM"}
+]
