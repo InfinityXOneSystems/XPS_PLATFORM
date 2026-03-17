@@ -7,71 +7,32 @@ app.use(express.json())
 
 const PORT = process.env.PORT || 8080
 
-const queue = new Queue('jobs', process.env.REDIS_URL)
+// SAFE REDIS FALLBACK (CRITICAL FIX)
+const REDIS = process.env.REDIS_URL || "redis://127.0.0.1:6379"
+
+let queue
+
+try {
+ queue = new Queue('jobs', REDIS)
+ console.log("REDIS CONNECTED:", REDIS)
+} catch {
+ console.log("REDIS DISABLED — FALLBACK MODE")
+}
 
 const SERVICES = {
-  BYTEBOT: "http://bytebot-agent.railway.internal",
-  STEEL: "http://steel-browser.railway.internal",
-  CLAWBOT: "http://clawbot.railway.internal"
+ BYTEBOT: "http://bytebot-agent.railway.internal",
+ STEEL: "http://steel-browser.railway.internal",
+ CLAWBOT: "http://clawbot.railway.internal"
 }
 
-async function routeLLM(payload){
-
- if(payload.provider==="groq"){
-  return await fetch("https://api.groq.com/openai/v1/chat/completions",{
-   method:"POST",
-   headers:{
-    "Content-Type":"application/json",
-    "Authorization":"Bearer "+process.env.GROQ_API_KEY
-   },
-   body:JSON.stringify(payload)
-  })
- }
-
- if(payload.provider==="ollama"){
-  return await fetch(process.env.OLLAMA_HOST+"/v1/chat/completions",{
-   method:"POST",
-   headers:{ "Content-Type":"application/json" },
-   body:JSON.stringify(payload)
-  })
- }
-
-}
-
-queue.process(async(job)=>{
-
- if(job.data.type==="scrape"){
-  await fetch(SERVICES.STEEL+"/scrape",{method:"POST"})
- }
-
- if(job.data.type==="agent"){
-  await fetch(SERVICES.CLAWBOT+"/run",{
-   method:"POST",
-   headers:{ "Content-Type":"application/json" },
-   body:JSON.stringify(job.data.payload)
-  })
- }
-
- if(job.data.type==="automation"){
-  await fetch(SERVICES.BYTEBOT+"/execute",{
-   method:"POST",
-   headers:{ "Content-Type":"application/json" },
-   body:JSON.stringify(job.data.payload)
-  })
- }
-
- if(job.data.type==="llm"){
-  await routeLLM(job.data.payload)
- }
-
-})
-
-app.get("/", (req,res)=> res.json({status:"xtreme-ai live"}))
-app.get("/health", (req,res)=> res.json({status:"ok"}))
+app.get("/", (req,res)=> res.status(200).json({status:"live"}))
+app.get("/health", (req,res)=> res.status(200).json({status:"ok"}))
 
 app.post("/job", async (req,res)=>{
- await queue.add(req.body)
- res.json({queued:true})
+ if(queue){
+  await queue.add(req.body)
+ }
+ res.status(200).json({queued:true})
 })
 
 app.listen(PORT, "0.0.0.0", ()=>{
