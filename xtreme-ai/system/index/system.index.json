@@ -1,0 +1,25 @@
+﻿{
+ "system":"xtreme-ai",
+ "version":"1.0",
+ "modules":[
+  "kernel",
+  "orchestrator",
+  "workers",
+  "agents",
+  "ui",
+  "api",
+  "settings"
+ ],
+ "services":[
+  "bytebot",
+  "steel-browser",
+  "clawbot",
+  "redis",
+  "postgres",
+  "xtreme-ai"
+ ],
+ "llm":[
+  "groq",
+  "ollama"
+ ]
+}

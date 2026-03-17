@@ -1,0 +1,29 @@
+﻿{
+ "agents":[
+  "planner",
+  "builder",
+  "validator",
+  "scraper",
+  "researcher",
+  "deployer"
+ ],
+ "pipelines":[
+  "scrape_pipeline",
+  "lead_pipeline",
+  "agent_pipeline",
+  "deployment_pipeline"
+ ],
+ "data":[
+  "Lead",
+  "Company",
+  "User",
+  "AgentRun",
+  "ScrapeJob"
+ ],
+ "services":[
+  "ui",
+  "api",
+  "worker",
+  "orchestrator"
+ ]
+}
