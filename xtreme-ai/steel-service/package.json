@@ -1,0 +1,11 @@
+﻿{
+  "name": "steel-browser",
+  "version": "1.0.0",
+  "main": "steel.js",
+  "scripts": {
+    "start": "node steel.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
